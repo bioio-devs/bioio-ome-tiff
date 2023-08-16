@@ -1,0 +1,10 @@
+default_context:
+    author_name: "bioio-devs"
+    author_email: "brian.whitney@alleninstitute.org"
+    hosting_github_username_or_org: "bioio-devs"
+    project_name: "bioio-ome-tiff"
+    project_slug: "bioio-ome-tiff"
+    python_slug: "bioio_ome_tiff"
+    project_short_description: "A BioIO reader plugin for reading tiff files in the OME format."
+    hosting_pypi_username: "bioio-devs"
+    license: "MIT License"
