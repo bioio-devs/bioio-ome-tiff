@@ -223,7 +223,7 @@ class Reader(reader.Reader):
                     )
 
     @property
-    def scenes(self) -> Tuple[str, ...] | None:
+    def scenes(self) -> Optional[Tuple[str, ...]]:
         return self._scenes
 
     @staticmethod
