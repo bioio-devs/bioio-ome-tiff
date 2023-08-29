@@ -30,6 +30,7 @@ dependencies = [
   "bioio-base>=0.3.0",
   "dask[array]>=2021.4.1",
   "fsspec>=2022.8.0",
+  "imagecodecs>=2020.5.30",
   "numpy>=1.16",
   "lxml>=4.6,<5",
   "ome-types>=0.3.4",
