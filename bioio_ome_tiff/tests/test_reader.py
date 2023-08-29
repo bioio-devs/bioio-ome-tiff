@@ -399,7 +399,7 @@ def test_known_errors_without_cleaning(filename: str) -> None:
 )
 def test_micromanager_ome_tiff_main_file(filename: str) -> None:
     # Construct full filepath
-    uri = (LOCAL_RESOURCES_DIR / filename,)
+    uri = LOCAL_RESOURCES_DIR / filename
 
     # MicroManager will split up multi-scene image sets into multiple files
     # tifffile will then read in all of the scenes at once when it detects
