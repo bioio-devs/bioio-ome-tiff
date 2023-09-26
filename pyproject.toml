@@ -27,7 +27,18 @@ classifiers = [
 ]
 dynamic = ["version"]
 dependencies = [
-  "bioio-base>=0.2.0",
+  "bioio-base>=0.3.0",
+  "dask[array]>=2021.4.1",
+  "fsspec>=2022.8.0",
+  "imagecodecs>=2020.5.30",
+  "numpy>=1.21",
+  "ome-types[lxml]>=0.4.0",
+  "pydantic>= 1.10.0",
+  "PyYAML>=6.0",
+  "tifffile>=2022.4.22",
+  "xarray>=0.16.1",
+  "xmlschema",  # no pin because it's pulled in from OME types
+  "zarr>=2.6", # for tifffile
 ]
 
 [project.urls]
@@ -47,6 +58,8 @@ test = [
   "pytest>=5.4.3",
   "pytest-cov>=2.9.0",
   "pytest-raises>=0.11",
+  "quilt3", # no pin to avoid pip cycling (boto is really hard to manage)
+  "types-PyYAML>=6.0.12.9",
 ]
 docs = [
   # Sphinx + Doc Gen + Styling
@@ -99,6 +112,7 @@ ignore = [
   "CONTRIBUTING.md",
   "Justfile",
   ".cookiecutter.yaml",
+  "scripts/*",
   "*docs/*",
 ]
 
