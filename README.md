@@ -1,7 +1,7 @@
 # bioio-ome-tiff
 
-[![Build Status](https://github.com/bioio-devs/bioio-ome-tiff/workflows/CI/badge.svg)](https://github.com/bioio-devs/bioio-ome-tiff/actions)
-[![Documentation](https://github.com/bioio-devs/bioio-ome-tiff/workflows/Documentation/badge.svg)](https://bioio-devs.github.io/bioio-ome-tiff)
+[![Build Status](https://github.com/bioio-devs/bioio-ome-tiff/actions/workflows/ci.yml/badge.svg)](https://github.com/bioio-devs/bioio-ome-tiff/actions)
+[![Documentation](https://github.com/bioio-devs/bioio-ome-tiff/actions/workflows/docs.yml/badge.svg)](https://bioio-devs.github.io/bioio-ome-tiff)
 
 A BioIO reader plugin for reading tiff files in the OME format.
 
