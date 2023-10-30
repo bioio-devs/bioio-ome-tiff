@@ -15,7 +15,7 @@ from dask import delayed
 from fsspec.implementations.local import LocalFileSystem
 from fsspec.spec import AbstractFileSystem
 from ome_types import OME, from_xml
-from pydantic.error_wrappers import ValidationError
+from pydantic import ValidationError
 from tifffile.tifffile import TiffFile, TiffFileError, TiffTags, imread
 from xmlschema import XMLSchemaValidationError
 from xmlschema.exceptions import XMLSchemaValueError
