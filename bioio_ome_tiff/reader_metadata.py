@@ -21,7 +21,7 @@ class ReaderMetadata(bioio_base.reader_metadata.ReaderMetadata):
         """
         Return a list of file extensions this plugin supports reading.
         """
-        return [".ome.tiff", ".tiff"]
+        return [".ome.tiff", ".tiff", "ome.tif", ".tif"]
 
     @staticmethod
     def get_reader() -> bioio_base.reader.Reader:
