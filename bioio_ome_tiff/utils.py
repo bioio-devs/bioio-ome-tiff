@@ -611,6 +611,7 @@ def get_dims_from_ome(ome: OME, scene_index: int) -> List[str]:
 
     return dims
 
+
 def get_coords_from_ome(
     ome: OME, scene_index: int
 ) -> Dict[str, Union[List[Any], Union[types.ArrayLike, Any]]]:
