@@ -599,11 +599,17 @@ def get_dims_from_ome(ome: OME, scene_index: int) -> List[str]:
     # Check for num samples and expand dims if greater than 1
     n_samples = scene_meta.pixels.channels[0].samples_per_pixel
     if n_samples is not None and n_samples > 1 and "S" not in dims:
-        # Append to the end, i.e. the last dimension
-        dims.append("S")
+        # The OME spec might be describing the channels as samples.
+        # If so, by checking if the channel length is the same length
+        # as the described samples, we need to add samples as the last dimension.
+        if len(scene_meta.pixels.channels) != n_samples:
+            dims.append("S")
+        else:
+            # If not, need to drop the channel dimension and add it in place of
+            # samples
+            dims = [dim for dim in dims if dim != "C"] + ["C"]
 
     return dims
-
 
 def get_coords_from_ome(
     ome: OME, scene_index: int

@@ -159,6 +159,16 @@ class Reader(reader.Reader):
         # not also found in OME will be omitted.
         dims_from_tiff_axes = list(tiff.series[scene_index].axes)
 
+        # If the OME metadata does not have a "S" dimension but the tiff axes
+        # does, and the OME metadata has a "C" dimension but the tiff axes does
+        # not, then we can assume that the "S" dimension in the tiff axes is
+        # actually the "C" dimension in the OME metadata.
+        if "S" in dims_from_tiff_axes and "S" not in dims_from_ome and "C" in dims_from_ome and "C" not in dims_from_tiff_axes:
+            dims_from_tiff_axes = [
+                dim if dim != "S" else "C"
+                for dim in dims_from_tiff_axes
+            ]
+
         # Adjust the guess of what the dimensions are based on the combined
         # information from the tiff axes and the OME metadata.
         # Necessary since while OME metadata should be source of truth, it
