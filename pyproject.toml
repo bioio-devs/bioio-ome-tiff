@@ -38,7 +38,7 @@ dependencies = [
   "tifffile>=2022.4.22",
   "xarray>=0.16.1",
   "xmlschema",  # no pin because it's pulled in from OME types
-  "zarr>=2.6", # for tifffile
+  "zarr>=2.6,<3.0.0", # for tifffile
 ]
 
 [project.urls]
