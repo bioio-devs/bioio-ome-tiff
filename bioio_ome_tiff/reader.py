@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 
+import json
 import logging
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -310,15 +311,47 @@ class Reader(reader.Reader):
         # Reset dims after transform
         dims = [d for d in out_order]
 
+        local_attrs = {
+            constants.METADATA_UNPROCESSED: tiff_tags,
+            constants.METADATA_PROCESSED: self._ome,
+        }
+        local_attrs = self._unpack_uprocessed_tags(attrs=local_attrs)
+
         return xr.DataArray(
             image_data,
             dims=dims,
             coords=coords,
-            attrs={
-                constants.METADATA_UNPROCESSED: tiff_tags,
-                constants.METADATA_PROCESSED: self._ome,
-            },
+            attrs=local_attrs,
         )
+
+    @staticmethod
+    def _unpack_uprocessed_tags(attrs: Dict[str, Any]) -> Dict[str, Any]:
+        """unpack the 'unprocessed' tags for visibility in attrs dict
+
+        Args:
+            attrs (Dict[str, Any]): _description_
+
+        Returns:
+            Dict[str, Any]: _description_
+        """
+        if not attrs or constants.METADATA_UNPROCESSED not in attrs.keys():
+            return attrs
+        unprocessed = attrs[constants.METADATA_UNPROCESSED]
+        if not unprocessed:
+            return attrs
+        for k, v in unprocessed.items():
+            # also break up code 50839 which is where it seems MM metadata lives
+            # 50839 is a private tag registered with Adobe
+            if k == 50839:
+                try:
+                    for kk, vv in json.loads(v["Info"]).items():
+                        attrs[kk] = vv
+                except Exception:
+                    # if we can't parse the json, just ignore it
+                    pass
+            else:
+                attrs[k] = v
+        return attrs
 
     def _read_delayed(self) -> xr.DataArray:
         """

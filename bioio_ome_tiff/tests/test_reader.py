@@ -4,7 +4,7 @@ from typing import List, Tuple
 
 import numpy as np
 import pytest
-from bioio_base import dimensions, exceptions, test_utilities
+from bioio_base import constants, dimensions, exceptions, test_utilities
 from ome_types import OME
 
 from bioio_ome_tiff import Reader
@@ -441,3 +441,64 @@ def test_ome_metadata(filename: str) -> None:
 
     # Test the transform
     assert isinstance(img.ome_metadata, OME)
+
+
+@pytest.mark.parametrize(
+    "attrs, expected",
+    [
+        ({}, {}),
+        (
+            {constants.METADATA_PROCESSED: "some data"},
+            {constants.METADATA_PROCESSED: "some data"},
+        ),
+        (
+            {
+                constants.METADATA_PROCESSED: "some data",
+                constants.METADATA_UNPROCESSED: {},
+            },
+            {
+                constants.METADATA_PROCESSED: "some data",
+                constants.METADATA_UNPROCESSED: {},
+            },
+        ),
+        (
+            {
+                constants.METADATA_PROCESSED: "some data",
+                constants.METADATA_UNPROCESSED: {1: "a", 2: "b"},
+            },
+            {
+                constants.METADATA_PROCESSED: "some data",
+                constants.METADATA_UNPROCESSED: {1: "a", 2: "b"},
+                1: "a",
+                2: "b",
+            },
+        ),
+        (
+            {
+                constants.METADATA_PROCESSED: "some data",
+                # note the value for "Info" is a string
+                constants.METADATA_UNPROCESSED: {
+                    1: "a",
+                    2: "b",
+                    50839: {"Info": '{"10":"ten", "20":"twenty"}'},
+                },
+            },
+            {
+                constants.METADATA_PROCESSED: "some data",
+                # note the value for "Info" is a string
+                constants.METADATA_UNPROCESSED: {
+                    1: "a",
+                    2: "b",
+                    50839: {"Info": '{"10":"ten", "20":"twenty"}'},
+                },
+                1: "a",
+                2: "b",
+                "10": "ten",
+                "20": "twenty",
+            },
+        ),
+    ],
+)
+def test_unpacking_uproccessed(attrs: dict, expected: dict) -> None:
+    actual = Reader._unpack_uprocessed_tags(attrs=attrs)
+    assert actual == expected
