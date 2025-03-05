@@ -315,7 +315,7 @@ class Reader(reader.Reader):
             constants.METADATA_UNPROCESSED: tiff_tags,
             constants.METADATA_PROCESSED: self._ome,
         }
-        local_attrs = self._unpack_uprocessed_tags(attrs=local_attrs)
+        local_attrs = self._unpack_unprocessed_tags(attrs=local_attrs)
 
         return xr.DataArray(
             image_data,
@@ -325,7 +325,7 @@ class Reader(reader.Reader):
         )
 
     @staticmethod
-    def _unpack_uprocessed_tags(attrs: Dict[str, Any]) -> Dict[str, Any]:
+    def _unpack_unprocessed_tags(attrs: Dict[str, Any]) -> Dict[str, Any]:
         """unpack the 'unprocessed' tags for visibility in attrs dict
 
         Args:

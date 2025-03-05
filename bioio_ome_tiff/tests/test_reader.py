@@ -499,6 +499,6 @@ def test_ome_metadata(filename: str) -> None:
         ),
     ],
 )
-def test_unpacking_uproccessed(attrs: dict, expected: dict) -> None:
-    actual = Reader._unpack_uprocessed_tags(attrs=attrs)
+def test_unpacking_unproccessed(attrs: dict, expected: dict) -> None:
+    actual = Reader._unpack_unprocessed_tags(attrs=attrs)
     assert actual == expected
