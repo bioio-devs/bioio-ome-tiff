@@ -183,6 +183,38 @@ class Reader(reader.Reader):
         dims += [dim for dim in dims_from_tiff_axes if dim in dims_from_ome]
         return dims
 
+    @staticmethod
+    def _unpack_unprocessed_tags(attrs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        unpack the 'unprocessed' tags for visibility in attrs dict
+
+        Parameters
+        -------
+            attrs: Dict[str, Any]
+                the dictionary of with attributes to be unpacked
+
+        Returns
+        -------
+            attrs: Dict[str, Any] 
+                the modified dictionary, with the unprocessed tags unpacked
+        """
+        unprocessed = attrs[constants.METADATA_UNPROCESSED]
+        if not unprocessed:
+            return unprocessed
+        for k, v in unprocessed.items():
+            # also break up code 50839 which is where it seems MM metadata lives
+            # 50839 is a private tag registered with Adobe
+            if k == 50839:
+                try:
+                    for kk, vv in json.loads(v["Info"]).items():
+                        attrs[kk] = vv
+                except Exception:
+                    # if we can't parse the json, just ignore it
+                    pass
+            else:
+                attrs[k] = v
+        return attrs
+
     def __init__(
         self,
         image: types.PathLike,
@@ -311,47 +343,18 @@ class Reader(reader.Reader):
         # Reset dims after transform
         dims = [d for d in out_order]
 
-        local_attrs = {
+        attrs = {
             constants.METADATA_UNPROCESSED: tiff_tags,
             constants.METADATA_PROCESSED: self._ome,
         }
-        local_attrs = self._unpack_unprocessed_tags(attrs=local_attrs)
-
+        attrs = self._unpack_unprocessed_tags(attrs)
+        
         return xr.DataArray(
             image_data,
             dims=dims,
             coords=coords,
-            attrs=local_attrs,
+            attrs=attrs,
         )
-
-    @staticmethod
-    def _unpack_unprocessed_tags(attrs: Dict[str, Any]) -> Dict[str, Any]:
-        """unpack the 'unprocessed' tags for visibility in attrs dict
-
-        Args:
-            attrs (Dict[str, Any]): _description_
-
-        Returns:
-            Dict[str, Any]: _description_
-        """
-        if not attrs or constants.METADATA_UNPROCESSED not in attrs.keys():
-            return attrs
-        unprocessed = attrs[constants.METADATA_UNPROCESSED]
-        if not unprocessed:
-            return attrs
-        for k, v in unprocessed.items():
-            # also break up code 50839 which is where it seems MM metadata lives
-            # 50839 is a private tag registered with Adobe
-            if k == 50839:
-                try:
-                    for kk, vv in json.loads(v["Info"]).items():
-                        attrs[kk] = vv
-                except Exception:
-                    # if we can't parse the json, just ignore it
-                    pass
-            else:
-                attrs[k] = v
-        return attrs
 
     def _read_delayed(self) -> xr.DataArray:
         """
