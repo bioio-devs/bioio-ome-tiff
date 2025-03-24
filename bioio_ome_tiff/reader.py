@@ -198,11 +198,15 @@ class Reader(reader.Reader):
             attrs: Dict[str, Any]
                 the modified dictionary, with the unprocessed tags unpacked
         """
-        unprocessed = attrs[constants.METADATA_UNPROCESSED] if constants.METADATA_UNPROCESSED in attrs else {}
+        unprocessed = (
+            attrs[constants.METADATA_UNPROCESSED]
+            if constants.METADATA_UNPROCESSED in attrs
+            else {}
+        )
         if not unprocessed:
             return attrs
         for k, v in unprocessed.items():
-            # also break up code 50839 which is where it seems MM metadata lives
+            # break up code 50839 which is where it seems MM metadata lives
             # 50839 is a private tag registered with Adobe
             if k == 50839:
                 try:
