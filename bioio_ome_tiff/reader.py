@@ -195,12 +195,12 @@ class Reader(reader.Reader):
 
         Returns
         -------
-            attrs: Dict[str, Any] 
+            attrs: Dict[str, Any]
                 the modified dictionary, with the unprocessed tags unpacked
         """
-        unprocessed = attrs[constants.METADATA_UNPROCESSED]
+        unprocessed = attrs[constants.METADATA_UNPROCESSED] if constants.METADATA_UNPROCESSED in attrs else {}
         if not unprocessed:
-            return unprocessed
+            return attrs
         for k, v in unprocessed.items():
             # also break up code 50839 which is where it seems MM metadata lives
             # 50839 is a private tag registered with Adobe
@@ -348,7 +348,7 @@ class Reader(reader.Reader):
             constants.METADATA_PROCESSED: self._ome,
         }
         attrs = self._unpack_unprocessed_tags(attrs)
-        
+
         return xr.DataArray(
             image_data,
             dims=dims,
