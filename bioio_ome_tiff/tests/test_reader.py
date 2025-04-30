@@ -441,3 +441,23 @@ def test_ome_metadata(filename: str) -> None:
 
     # Test the transform
     assert isinstance(img.ome_metadata, OME)
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "image_stack_tpzc_50tp_2p_5z_3c_512k_1_MMStack_2-Pos000_000.ome.tif",
+    ],
+)
+def test_micro_manager_metadata(filename: str) -> None:
+    # Get full filepath
+    uri = LOCAL_RESOURCES_DIR / filename
+
+    # Init image
+    img = Reader(uri)
+    metadata = img.micro_manager_metadata
+
+    # Test the transform
+    assert isinstance(metadata, dict)
+    assert metadata[278] == 256
+    assert metadata[50838] == (28, 3742, 48, 768, 768, 768)

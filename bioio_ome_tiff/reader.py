@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-
+import json
 import logging
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -65,6 +65,7 @@ class Reader(reader.Reader):
 
     _xarray_dask_data: Optional["xr.DataArray"] = None
     _xarray_data: Optional["xr.DataArray"] = None
+    _micro_manager_metadata: Optional[Dict[str | int, Any]] = None
     _mosaic_xarray_dask_data: Optional["xr.DataArray"] = None
     _mosaic_xarray_data: Optional["xr.DataArray"] = None
     _dims: Optional[dimensions.Dimensions] = None
@@ -235,10 +236,6 @@ class Reader(reader.Reader):
                         "Track progress on support here: "
                         "https://github.com/AllenCellModeling/aicsimageio/issues/196"
                     )
-
-    @property
-    def scenes(self) -> Optional[Tuple[str, ...]]:
-        return self._scenes
 
     @staticmethod
     def _expand_dims_to_match_ome(
@@ -453,6 +450,10 @@ class Reader(reader.Reader):
                 )
 
     @property
+    def scenes(self) -> Optional[Tuple[str, ...]]:
+        return self._scenes
+
+    @property
     def ome_metadata(self) -> OME:
         return self.metadata
 
@@ -470,6 +471,43 @@ class Reader(reader.Reader):
         metadata for unit information.
         """
         return physical_pixel_sizes(self.metadata, self.current_scene_index)
+
+    @property
+    def micro_manager_metadata(self) -> Dict[str | int, Any]:
+        """
+        Returns
+        -------
+        micro_manager_metadata: dict[str|int, Any]
+            Expose the unprocessed metadata from the file, additionally
+            flattening Adobe private tag 50839 into the top level of the dict.
+        Notes
+        -----
+        this is in response to a user request:
+            https://github.com/bioio-devs/bioio-ome-tiff/issues/5
+        """
+        if self._micro_manager_metadata is not None:
+            return self._micro_manager_metadata
+
+        self._micro_manager_metadata = {}
+        with self._fs.open(self._path) as open_resource:
+            with TiffFile(open_resource, is_mmstack=False) as tiff:
+                # Get unprocessed metadata from tags
+                tiff_tags = self._get_tiff_tags(tiff)
+                micro_manager_metadata = {}
+                for k, v in tiff_tags.items():
+                    # break up code 50839 which is where it seems MM metadata lives
+                    # 50839 is a private tag registered with Adobe
+                    if k == 50839:
+                        try:
+                            for kk, vv in json.loads(v["Info"]).items():
+                                micro_manager_metadata[kk] = vv
+                        except Exception:
+                            # if we can't parse the json, just ignore it
+                            pass
+                    else:
+                        micro_manager_metadata[k] = v
+                self._micro_manager_metadata = micro_manager_metadata
+        return self._micro_manager_metadata
 
     def _get_tiff_tags(self, tiff: TiffFile, process: bool = True) -> TiffTags:
         unprocessed_tags = tiff.series[self.current_scene_index].pages[0].tags
@@ -592,4 +630,3 @@ class Reader(reader.Reader):
         image_data = da.transpose(image_data, tuple(transpose_indices))
 
         return image_data
-
