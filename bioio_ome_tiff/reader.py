@@ -65,7 +65,7 @@ class Reader(reader.Reader):
 
     _xarray_dask_data: Optional["xr.DataArray"] = None
     _xarray_data: Optional["xr.DataArray"] = None
-    _micro_manager_metadata: Optional[Dict[str | int, Any]] = None
+    _unprocessed_metadata: Optional[Dict[str | int, Any]] = None
     _mosaic_xarray_dask_data: Optional["xr.DataArray"] = None
     _mosaic_xarray_data: Optional["xr.DataArray"] = None
     _dims: Optional[dimensions.Dimensions] = None
@@ -473,7 +473,7 @@ class Reader(reader.Reader):
         return physical_pixel_sizes(self.metadata, self.current_scene_index)
 
     @property
-    def micro_manager_metadata(self) -> Dict[str | int, Any]:
+    def unprocessed_metadata(self) -> Dict[str | int, Any]:
         """
         Returns
         -------
