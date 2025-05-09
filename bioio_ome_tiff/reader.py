@@ -477,7 +477,7 @@ class Reader(reader.Reader):
         """
         Returns
         -------
-        micro_manager_metadata: dict[str|int, Any]
+        unprocessed_metadata: dict[str|int, Any]
             Expose the unprocessed metadata from the file, additionally
             flattening Adobe private tag 50839 into the top level of the dict.
         Notes
@@ -485,29 +485,29 @@ class Reader(reader.Reader):
         this is in response to a user request:
             https://github.com/bioio-devs/bioio-ome-tiff/issues/5
         """
-        if self._micro_manager_metadata is not None:
-            return self._micro_manager_metadata
+        if self._unprocessed_metadata is not None:
+            return self._unprocessed_metadata
 
-        self._micro_manager_metadata = {}
+        self._unprocessed_metadata = {}
         with self._fs.open(self._path) as open_resource:
             with TiffFile(open_resource, is_mmstack=False) as tiff:
                 # Get unprocessed metadata from tags
                 tiff_tags = self._get_tiff_tags(tiff)
-                micro_manager_metadata = {}
+                unprocessed_metadata = {}
                 for k, v in tiff_tags.items():
                     # break up code 50839 which is where it seems MM metadata lives
                     # 50839 is a private tag registered with Adobe
                     if k == 50839:
                         try:
                             for kk, vv in json.loads(v["Info"]).items():
-                                micro_manager_metadata[kk] = vv
+                                unprocessed_metadata[kk] = vv
                         except Exception:
                             # if we can't parse the json, just ignore it
                             pass
                     else:
-                        micro_manager_metadata[k] = v
-                self._micro_manager_metadata = micro_manager_metadata
-        return self._micro_manager_metadata
+                        unprocessed_metadata[k] = v
+                self._unprocessed_metadata = unprocessed_metadata
+        return self._unprocessed_metadata
 
     def _get_tiff_tags(self, tiff: TiffFile, process: bool = True) -> TiffTags:
         unprocessed_tags = tiff.series[self.current_scene_index].pages[0].tags
