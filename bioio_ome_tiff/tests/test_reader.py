@@ -449,15 +449,16 @@ def test_ome_metadata(filename: str) -> None:
         "image_stack_tpzc_50tp_2p_5z_3c_512k_1_MMStack_2-Pos000_000.ome.tif",
     ],
 )
-def test_unprocessed_metadata(filename: str) -> None:
+def test_micromanager_metadata(filename: str) -> None:
     # Get full filepath
     uri = LOCAL_RESOURCES_DIR / filename
 
     # Init image
     img = Reader(uri)
-    metadata = img.unprocessed_metadata
+    metadata = img.micromanager_metadata
 
     # Test the transform
     assert isinstance(metadata, dict)
-    assert metadata[278] == 256
-    assert metadata[50838] == (28, 3742, 48, 768, 768, 768)
+    assert not (278 in metadata)  # non-mm keys do not exist
+    assert metadata['ChNames'] == ['Cy5', 'DAPI', 'FITC']
+    assert metadata['MicroManagerVersion'] == '2.0.0-gamma1-20201209'

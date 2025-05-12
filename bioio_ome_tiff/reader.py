@@ -65,7 +65,7 @@ class Reader(reader.Reader):
 
     _xarray_dask_data: Optional["xr.DataArray"] = None
     _xarray_data: Optional["xr.DataArray"] = None
-    _unprocessed_metadata: Optional[Dict[str | int, Any]] = None
+    _micromanager_metadata: Optional[Dict[str | int, Any]] = None
     _mosaic_xarray_dask_data: Optional["xr.DataArray"] = None
     _mosaic_xarray_data: Optional["xr.DataArray"] = None
     _dims: Optional[dimensions.Dimensions] = None
@@ -473,41 +473,36 @@ class Reader(reader.Reader):
         return physical_pixel_sizes(self.metadata, self.current_scene_index)
 
     @property
-    def unprocessed_metadata(self) -> Dict[str | int, Any]:
+    def micromanager_metadata(self) -> Dict[str | int, Any]:
         """
         Returns
         -------
-        unprocessed_metadata: dict[str|int, Any]
-            Expose the unprocessed metadata from the file, additionally
-            flattening Adobe private tag 50839 into the top level of the dict.
+        micromanager_metadata: dict[str|int, Any]
+        Expose the data from Adobe private tag 50839.
         Notes
         -----
         this is in response to a user request:
             https://github.com/bioio-devs/bioio-ome-tiff/issues/5
         """
-        if self._unprocessed_metadata is not None:
-            return self._unprocessed_metadata
+        if self._micromanager_metadata is not None:
+            return self._micromanager_metadata
 
-        self._unprocessed_metadata = {}
+        self._micromanager_metadata = {}
         with self._fs.open(self._path) as open_resource:
             with TiffFile(open_resource, is_mmstack=False) as tiff:
-                # Get unprocessed metadata from tags
+                # Iterate over tiff tags
                 tiff_tags = self._get_tiff_tags(tiff)
-                unprocessed_metadata = {}
                 for k, v in tiff_tags.items():
-                    # break up code 50839 which is where it seems MM metadata lives
+                    # break up key 50839 which is where MM metadata lives
                     # 50839 is a private tag registered with Adobe
                     if k == 50839:
                         try:
                             for kk, vv in json.loads(v["Info"]).items():
-                                unprocessed_metadata[kk] = vv
+                                self._micromanager_metadata[kk] = vv
                         except Exception:
                             # if we can't parse the json, just ignore it
                             pass
-                    else:
-                        unprocessed_metadata[k] = v
-                self._unprocessed_metadata = unprocessed_metadata
-        return self._unprocessed_metadata
+        return self._micromanager_metadata
 
     def _get_tiff_tags(self, tiff: TiffFile, process: bool = True) -> TiffTags:
         unprocessed_tags = tiff.series[self.current_scene_index].pages[0].tags
