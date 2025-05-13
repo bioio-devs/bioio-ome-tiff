@@ -460,5 +460,5 @@ def test_micromanager_metadata(filename: str) -> None:
     # Test the transform
     assert isinstance(metadata, dict)
     assert not (278 in metadata)  # non-mm keys do not exist
-    assert metadata['ChNames'] == ['Cy5', 'DAPI', 'FITC']
-    assert metadata['MicroManagerVersion'] == '2.0.0-gamma1-20201209'
+    assert metadata["ChNames"] == ["Cy5", "DAPI", "FITC"]
+    assert metadata["MicroManagerVersion"] == "2.0.0-gamma1-20201209"
