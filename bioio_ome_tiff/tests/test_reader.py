@@ -441,3 +441,24 @@ def test_ome_metadata(filename: str) -> None:
 
     # Test the transform
     assert isinstance(img.ome_metadata, OME)
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "image_stack_tpzc_50tp_2p_5z_3c_512k_1_MMStack_2-Pos000_000.ome.tif",
+    ],
+)
+def test_micromanager_metadata(filename: str) -> None:
+    # Get full filepath
+    uri = LOCAL_RESOURCES_DIR / filename
+
+    # Init image
+    img = Reader(uri)
+    metadata = img.micromanager_metadata
+
+    # Test the transform
+    assert isinstance(metadata, dict)
+    assert not (278 in metadata)  # non-mm keys do not exist
+    assert metadata["ChNames"] == ["Cy5", "DAPI", "FITC"]
+    assert metadata["MicroManagerVersion"] == "2.0.0-gamma1-20201209"
