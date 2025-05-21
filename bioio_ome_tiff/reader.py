@@ -283,53 +283,6 @@ class Reader(reader.Reader):
         # Apply operators to dask array
         return image_data[tuple(expand_dim_ops)]
 
-    @staticmethod
-    def _get_image_data(
-        fs: AbstractFileSystem,
-        path: str,
-        scene: int,
-        retrieve_indices: Tuple[Union[int, slice]],
-        transpose_indices: List[int],
-    ) -> np.ndarray:
-        """
-        Open a file for reading, construct a Zarr store, select data, and compute to
-        numpy.
-        Parameters
-        ----------
-        fs: AbstractFileSystem
-            The file system to use for reading.
-        path: str
-            The path to file to read.
-        scene: int
-            The scene index to pull the chunk from.
-        retrieve_indices: Tuple[Union[int, slice]]
-            The image indices to retrieve.
-        transpose_indices: List[int]
-            The indices to transpose to prior to requesting data.
-        Returns
-        -------
-        chunk: np.ndarray
-            The image chunk as a numpy array.
-        """
-        with fs.open(path) as open_resource:
-            with imread(
-                open_resource,
-                aszarr=True,
-                series=scene,
-                level=0,
-                chunkmode="page",
-                is_mmstack=False,
-            ) as store:
-                arr = da.from_zarr(store)
-                arr = arr.transpose(transpose_indices)
-
-                # By setting the compute call to always use a "synchronous" scheduler,
-                # it informs Dask not to look for an existing scheduler / client
-                # and instead simply read the data using the current thread / process.
-                # In doing so, we shouldn't run into any worker data transfer and
-                # handoff _during_ a read.
-                return arr[retrieve_indices].compute(scheduler="synchronous")
-
     def _general_data_array_constructor(
         self,
         image_data: types.ArrayLike,
