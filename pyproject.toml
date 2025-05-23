@@ -39,7 +39,9 @@ dependencies = [
   "tifffile>=2022.4.22",
   "xarray>=0.16.1",
   "xmlschema",  # no pin because it's pulled in from OME types
-  ]
+  #zarr pinned since breaking changes in 3.0 are available with python 3.11
+  "zarr>=2.6,<3.0.0", # for tifffile;
+]
 
 [project.urls]
 Homepage = "https://github.com/bioio-devs/bioio-ome-tiff"
@@ -49,9 +51,6 @@ Homepage = "https://github.com/bioio-devs/bioio-ome-tiff"
 # extra dependencies
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies
 [project.optional-dependencies]
-zarr = [
-  "tifffile[zarr]>=2022.4.22",
-]
 lint = [
   "pre-commit>=2.20.0",
 ]

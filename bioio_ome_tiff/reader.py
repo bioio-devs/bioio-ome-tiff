@@ -16,16 +16,9 @@ from fsspec.implementations.local import LocalFileSystem
 from fsspec.spec import AbstractFileSystem
 from ome_types import OME, from_xml
 from pydantic import ValidationError
-from tifffile.tifffile import TiffFile, TiffFileError, TiffTags
+from tifffile.tifffile import TiffFile, TiffFileError, TiffTags, imread
 from xmlschema import XMLSchemaValidationError
 from xmlschema.exceptions import XMLSchemaValueError
-
-try:
-    import zarr  # noqa: F401
-
-    _ZARR_AVAILABLE = True
-except ImportError:
-    _ZARR_AVAILABLE = False
 
 from .utils import (
     clean_ome_xml_for_known_issues,
@@ -595,42 +588,40 @@ class Reader(reader.Reader):
         transpose_indices: List[int],
     ) -> np.ndarray:
         """
-        Open a TIFF file for reading, lazily load scene-based chunked slices using
-        tifffile, and return selected data.
-
-        If the Zarr interface is available, use it for more efficient chunked access.
-        Otherwise, fall back to full-scene read with manual indexing.
-
+        Open a file for reading, construct a Zarr store, select data, and compute to
+        numpy.
         Parameters
         ----------
         fs: AbstractFileSystem
-            Filesystem to open path from.
+            The file system to use for reading.
         path: str
-            Path to TIFF file.
+            The path to file to read.
         scene: int
-            Scene index to read from.
+            The scene index to pull the chunk from.
         retrieve_indices: Tuple[Union[int, slice]]
-            Indices to extract from the transposed array.
+            The image indices to retrieve.
         transpose_indices: List[int]
-            Indices to apply for transposition before slicing.
-
+            The indices to transpose to prior to requesting data.
         Returns
         -------
-        np.ndarray
+        chunk: np.ndarray
             The image chunk as a numpy array.
         """
-        with fs.open(path, mode="rb") as open_resource:
-            with TiffFile(open_resource, is_mmstack=False) as tif:
-                if _ZARR_AVAILABLE:
-                    try:
-                        store = tif.aszarr(series=scene, level=0, chunkmode="page")
-                        darr = da.from_zarr(store).transpose(transpose_indices)
-                        return darr[retrieve_indices].compute(scheduler="synchronous")
-                    except Exception as e:
-                        log.warning(
-                            f"Zarr access failed, falling back to asarray. Error: {e}"
-                        )
+        with fs.open(path) as open_resource:
+            with imread(
+                open_resource,
+                aszarr=True,
+                series=scene,
+                level=0,
+                chunkmode="page",
+                is_mmstack=False,
+            ) as store:
+                arr = da.from_zarr(store)
+                arr = arr.transpose(transpose_indices)
 
-                arr = tif.series[scene].asarray()
-                arr = np.transpose(arr, transpose_indices)
-                return arr[retrieve_indices]
+                # By setting the compute call to always use a "synchronous" scheduler,
+                # it informs Dask not to look for an existing scheduler / client
+                # and instead simply read the data using the current thread / process.
+                # In doing so, we shouldn't run into any worker data transfer and
+                # handoff _during_ a read.
+                return arr[retrieve_indices].compute(scheduler="synchronous")

@@ -20,13 +20,6 @@ Information about the base reader this package relies on can be found in the `bi
 
 **Stable Release:** `pip install bioio-ome-tiff`<br>
 **Development Head:** `pip install git+https://github.com/bioio-devs/bioio-ome-tiff.git`
-## Optional: Install with Zarr Support
-
-To enable more efficient chunked reading for large TIFF files using the Zarr interface, you can install `bioio-ome-tiff` with optional Zarr support.
-The reason this is optional is that it requires a legacy version of the `zarr` package which clashes with some of the existing reader plugins.
-```
-pip install "bioio-ome-tiff[zarr]"
-```
 
 ## Example Usage (see full documentation for more examples)
 
