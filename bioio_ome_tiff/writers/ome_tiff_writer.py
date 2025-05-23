@@ -9,6 +9,7 @@ import dask.array as da
 import numpy as np
 import tifffile
 from bioio_base.types import PhysicalPixelSizes
+from bioio_base.writer import Writer
 from fsspec.implementations.local import LocalFileSystem
 from ome_types import from_xml, to_xml
 from ome_types.model import OME, Channel, Image, Pixels, TiffData
@@ -21,7 +22,7 @@ from ..utils import (
     generate_ome_image_id,
     ome_to_numpy_dtype,
 )
-from .writer import Writer
+
 
 # This is the threshold to use BigTiff, if it's the 4GB boundary it should be 2**22 but
 # the libtiff writer was unable to handle a 2GB numpy array.
