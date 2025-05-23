@@ -13,7 +13,7 @@ name = "bioio-ome-tiff"
 description = "A BioIO reader plugin for reading tiff files in the OME format."
 keywords = []
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { text = "MIT License" }
 authors = [
   { email = "brian.whitney@alleninstitute.org", name = "bioio-devs" },
@@ -21,14 +21,13 @@ authors = [
 classifiers = [
   "Development Status :: 4 - Beta",
   "Natural Language :: English",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
 ]
 dynamic = ["version"]
 dependencies = [
-  "bioio-base>=0.3.0",
+  "bioio-base>=1.4.0",
   "dask[array]>=2021.4.1",
   "fsspec>=2022.8.0",
   "imagecodecs>=2020.5.30",
@@ -36,11 +35,9 @@ dependencies = [
   "ome-types[lxml]>=0.4.0",
   "pydantic>= 1.10.0",
   "PyYAML>=6.0",
-  "tifffile>=2022.4.22",
+  "tifffile[zarr]>=2025.5.21",
   "xarray>=0.16.1",
   "xmlschema",  # no pin because it's pulled in from OME types
-  #zarr pinned since breaking changes in 3.0 are available with python 3.11
-  "zarr>=2.6,<3.0.0", # for tifffile;
 ]
 
 [project.urls]
@@ -67,6 +64,9 @@ test = [
 # https://peps.python.org/pep-0621/#entry-points
 [project.entry-points."bioio.readers"]
 bioio-ome-tiff = "bioio_ome_tiff"
+
+[project.entry-points."bioio.writers"]
+OmeTiffWriter = "bioio_ome_tiff.writers:OmeTiffWriter"
 
 # build settings
 # https://setuptools.pypa.io/en/latest/userguide/pyproject_config.html
@@ -117,7 +117,7 @@ show_error_codes = true
 [tool.flake8]
 max-line-length = 88
 ignore = "E203,E402,W291,W503"
-min-python-version = "3.10.0"
+min-python-version = "3.11.0"
 per-file-ignores = [
   "__init__.py:F401",
 ]
