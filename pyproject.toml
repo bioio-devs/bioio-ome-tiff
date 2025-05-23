@@ -65,6 +65,9 @@ test = [
 [project.entry-points."bioio.readers"]
 bioio-ome-tiff = "bioio_ome_tiff"
 
+[project.entry-points."bioio.writers"]
+OmeTiffWriter = "bioio_ome_tiff.writers:OmeTiffWriter"
+
 # build settings
 # https://setuptools.pypa.io/en/latest/userguide/pyproject_config.html
 [tool.setuptools]
