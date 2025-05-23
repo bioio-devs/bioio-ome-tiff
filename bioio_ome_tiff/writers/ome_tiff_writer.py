@@ -23,7 +23,6 @@ from ..utils import (
     ome_to_numpy_dtype,
 )
 
-
 # This is the threshold to use BigTiff, if it's the 4GB boundary it should be 2**22 but
 # the libtiff writer was unable to handle a 2GB numpy array.
 # It would be great if we better understood exactly what this threshold is and how to
