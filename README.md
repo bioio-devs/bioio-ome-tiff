@@ -43,13 +43,13 @@ img.data
 
 ## OmeTiffWriter
 
-Import the writer:
+Import for the writer:
 
 ```python
 from bioio_ome_tiff.writers import OmeTiffWriter
 ```
 
-The `OmeTiffWriter` lets you save NumPy or Dask arrays to OME-TIFF files, supporting:
+The `OmeTiffWriter` lets you save image data to OME-TIFF files, supporting:
 
 * Single- or multi-scene datasets with explicit dimension order
 * Custom channel names, colors, and physical pixel sizes
