@@ -30,14 +30,39 @@ jobs:
         with:
           python-version: "3.x"
       - run: pip install check-manifest && check-manifest
-  
-  # Check tests pass on multiple Python and OS combinations
-  test:
+
+  # Check linting, formating, types, etc.
+  lint:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ 3.11, 3.12, 3.13]
+        os: [ubuntu-latest, macOS-latest, windows-latest]
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+    - uses: extractions/setup-just@v3
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install .[lint]
+    - name: Lint
+      run: just lint
+  
+  # Check tests pass on multiple Python and OS combinations
+  test:
+    runs-on: ${{ matrix.os }}
+    needs: [check-manifest, lint]
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [3.11, 3.12, 3.13]
         os: [ubuntu-latest, macOS-latest, windows-latest]
     env:
       BUCKET_NAME : "bioio-dev-test-resources"
@@ -78,30 +103,54 @@ jobs:
     - name: Upload Codecov
       uses: codecov/codecov-action@v5
 
-  # Check linting, formating, types, etc.
-  lint:
-    runs-on: ubuntu-latest
+  # Check package performance
+  benchmark:
+    needs: [check-manifest, lint]
+    env:
+      BUCKET_NAME : "bioio-dev-test-resources"
+      AWS_REGION : "us-west-2"
+    permissions:
+      id-token: write   # This is required for requesting the JWT
+      contents: read    # This is required for actions/checkout
 
     steps:
     - uses: actions/checkout@v4
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::978220035532:role/bioio_github
+        role-session-name: bioio-ome-tiff-${{ github.sha }}
+        aws-region: ${{ env.AWS_REGION }}
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.11"
+        python-version: "3.13"
     - uses: extractions/setup-just@v3
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install .[lint]
-    - name: Lint
-      run: just lint
+        just install
+    - uses: actions/cache@v4
+      id: cache
+      with:
+        path: bioio_ome_tiff/tests/resources
+        key: ${{ hashFiles('scripts/TEST_RESOURCES_HASH.txt') }}
+    - name: Download Test Resources
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: |
+           python scripts/download_test_resources.py --debug
+    - name: Run Performance Benchmark
+      run: just benchmark
+    - name: Upload Performance Results
+      uses: actions/upload-artifact@v4
+      with:
+        if-no-files-found: error
 
   # Publish to PyPI if test, lint, and manifest checks passed
   publish:
     if: "success() && startsWith(github.ref, 'refs/tags/')"
-    needs: [check-manifest, test, lint]
+    needs: [check-manifest, test, lint, benchmark]
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -133,7 +182,7 @@ jobs:
   # all the other checks pass.
   results:
     if: ${{ always() && github.event_name == 'pull_request' }}
-    needs: [check-manifest, test, lint]
+    needs: [check-manifest, test, lint, benchmark]
     runs-on: ubuntu-latest
     name: Report Result
     steps:
