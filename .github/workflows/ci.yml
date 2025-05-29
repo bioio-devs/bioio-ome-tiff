@@ -106,6 +106,7 @@ jobs:
   # Check package performance
   benchmark:
     needs: [check-manifest, lint]
+    runs-on: ubuntu-latest
     env:
       BUCKET_NAME : "bioio-dev-test-resources"
       AWS_REGION : "us-west-2"
