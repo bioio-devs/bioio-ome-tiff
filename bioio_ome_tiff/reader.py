@@ -104,36 +104,53 @@ class Reader(reader.Reader):
                     # in this case, because it's not the main file we want to just role
                     # back to TiffReader
                     if ome.binary_only:
-                        return False
-
+                        raise exceptions.UnsupportedFileFormatError(
+                            "bioio-ome-tiff",
+                            path,
+                            "The OME metadata indicates this is a binary OME-TIFF.",
+                        )
                     return True
 
         # tifffile exceptions
-        except (TiffFileError, TypeError):
-            return False
+        except (TiffFileError, TypeError) as e:
+            raise exceptions.UnsupportedFileFormatError(
+                "bioio-ome-tiff",
+                path,
+                str(e),
+            )
 
         # xml parse errors
         except ET.ParseError as e:
-            log.debug(f"Failed to parse XML for the provided file. Error: {e}")
-            return False
+            raise exceptions.UnsupportedFileFormatError(
+                "bioio-ome-tiff",
+                path,
+                f"Failed to parse XML for the provided file. Error: {e}",
+            )
 
         # invalid OME XMl
         except (XMLSchemaValueError, XMLSchemaValidationError, ValidationError) as e:
-            log.debug(f"OME XML validation failed. Error: {e}")
-            return False
+            raise exceptions.UnsupportedFileFormatError(
+                "bioio-ome-tiff",
+                path,
+                f"OME XML validation failed. Error: {e}",
+            )
 
         # cant connect to external schema resource (no internet conection)
         except URLError as e:
-            log.debug(
+            raise exceptions.UnsupportedFileFormatError(
+                "bioio-ome-tiff",
+                path,
                 f"Could not validate OME XML against referenced schema "
                 f"(no internet connection). "
-                f"Error: {e}"
+                f"Error: {e}",
             )
-            return False
 
         except Exception as e:
-            log.debug(f"Unhandled exception: {e}")
-            return False
+            raise exceptions.UnsupportedFileFormatError(
+                "bioio-ome-tiff",
+                path,
+                str(e),
+            )
 
     @staticmethod
     def _guess_ome_dim_order(tiff: TiffFile, ome: OME, scene_index: int) -> List[str]:
@@ -206,10 +223,7 @@ class Reader(reader.Reader):
         self.clean_metadata = clean_metadata
 
         # Enforce valid image
-        if not self._is_supported_image(self._fs, self._path, clean_metadata):
-            raise exceptions.UnsupportedFileFormatError(
-                self.__class__.__name__, self._path
-            )
+        self._is_supported_image(self._fs, self._path, clean_metadata)
 
         # Get ome-types object and warn of other behaviors
         with self._fs.open(self._path) as open_resource:
