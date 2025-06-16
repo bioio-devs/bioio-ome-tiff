@@ -104,9 +104,6 @@ class Reader(reader.Reader):
                     # in this case, because it's not the main file we want to just role
                     # back to TiffReader
                     if ome.binary_only:
-                        log.debug(
-                            "The OME metadata indicates this is a binary OME-TIFF. "
-                        )
                         raise exceptions.UnsupportedFileFormatError(
                             "bioio-ome-tiff",
                             path,
@@ -116,7 +113,6 @@ class Reader(reader.Reader):
 
         # tifffile exceptions
         except (TiffFileError, TypeError) as e:
-            log.debug(f"Error: {e}")
             raise exceptions.UnsupportedFileFormatError(
                 "bioio-ome-tiff",
                 path,
@@ -125,7 +121,6 @@ class Reader(reader.Reader):
 
         # xml parse errors
         except ET.ParseError as e:
-            log.debug(f"Failed to parse XML for the provided file. Error: {e}")
             raise exceptions.UnsupportedFileFormatError(
                 "bioio-ome-tiff",
                 path,
@@ -134,7 +129,6 @@ class Reader(reader.Reader):
 
         # invalid OME XMl
         except (XMLSchemaValueError, XMLSchemaValidationError, ValidationError) as e:
-            log.debug(f"OME XML validation failed. Error: {e}")
             raise exceptions.UnsupportedFileFormatError(
                 "bioio-ome-tiff",
                 path,
@@ -143,11 +137,6 @@ class Reader(reader.Reader):
 
         # cant connect to external schema resource (no internet conection)
         except URLError as e:
-            log.debug(
-                f"Could not validate OME XML against referenced schema "
-                f"(no internet connection). "
-                f"Error: {e}"
-            )
             raise exceptions.UnsupportedFileFormatError(
                 "bioio-ome-tiff",
                 path,
@@ -157,7 +146,6 @@ class Reader(reader.Reader):
             )
 
         except Exception as e:
-            log.debug(f"Unhandled exception: {e}")
             raise exceptions.UnsupportedFileFormatError(
                 "bioio-ome-tiff",
                 path,
