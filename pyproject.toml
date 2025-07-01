@@ -37,7 +37,7 @@ dependencies = [
   "pydantic>= 1.10.0",
   "PyYAML>=6.0",
   'tifffile[zarr]>=2022.4.22,<2025.1.10; python_version < "3.11"',
-  'tifffile[zarr]>=2025.5.21;; python_version >= "3.11"',
+  'tifffile[zarr]>=2025.5.21; python_version >= "3.11"',
   "xarray>=0.16.1",
   "xmlschema",  # no pin because it's pulled in from OME types
 ]
