@@ -15,6 +15,6 @@ test_files = [
     test_file
     for test_file in test_resources_dir.iterdir()
     # Exclude some files that are -intended- to fail the reader
-    if test_file.name not in {"s_1_t_1_c_2_z_1.lif", "example.txt"}
+    if test_file.name not in {"image_stack_tpzc_50tp_2p_5z_3c_512k_1_MMStack_2-Pos001_000.ome.tif", "s_1_t_1_c_2_z_1.lif", "example.txt"}
 ]
 bioio_base.benchmark.benchmark(bioio_ome_tiff.reader.Reader, test_files)
