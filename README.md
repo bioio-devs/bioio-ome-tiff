@@ -3,7 +3,7 @@
 [![Build Status](https://github.com/bioio-devs/bioio-ome-tiff/actions/workflows/ci.yml/badge.svg)](https://github.com/bioio-devs/bioio-ome-tiff/actions)
 [![PyPI version](https://badge.fury.io/py/bioio-ome-tiff.svg)](https://badge.fury.io/py/bioio-ome-tiff)
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
-[![Python 3.11–3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10–3.13](https://img.shields.io/badge/python-3.10--3.13-blue.svg)](https://www.python.org/downloads/)
 
 A BioIO reader plugin for reading OME TIFF files using `tifffile`
 
@@ -39,6 +39,60 @@ import bioio_ome_tiff
 
 img = BioImage("my_file.ome.tiff", reader=bioio_ome_tiff.Reader)
 img.data
+```
+
+## OmeTiffWriter
+
+Import for the writer:
+
+```python
+from bioio_ome_tiff.writers import OmeTiffWriter
+```
+
+The `OmeTiffWriter` lets you save image data to OME-TIFF files, supporting:
+
+* Single- or multi-scene datasets with explicit dimension order
+* Custom channel names, colors, and physical pixel sizes
+* Automatic generation and validation of OME-XML metadata
+* BigTIFF output for large (>2 GB) images
+
+### Example Usage
+
+```python
+# Write a TCZYX dataset to OME-TIFF
+image = numpy.ndarray([1, 10, 3, 1024, 2048])
+OmeTiffWriter.save(image, "file.ome.tif")
+```
+
+```python
+# Write data with a specific dimension order
+image = numpy.ndarray([10, 3, 1024, 2048])
+OmeTiffWriter.save(image, "file.ome.tif", dim_order="ZCYX")
+```
+
+```python
+# Write multi-scene data, specifying channel names
+image0 = numpy.ndarray([3, 10, 1024, 2048])
+image1 = numpy.ndarray([3, 10, 512, 512])
+OmeTiffWriter.save(
+    [image0, image1],
+    "file.ome.tif",
+    dim_order="CZYX",  # will be applied to both scenes
+    channel_names=[["C00", "C01", "C02"], ["C10", "C11", "C12"]],
+)
+```
+
+```python
+# Write data with a custom compression scheme
+image = numpy.ndarray([1, 10, 3, 1024, 2048])
+OmeTiffWriter.save(
+    image,
+    "file.ome.tif",
+    tifffile_kwargs={
+        "compression": "zlib",
+        "compressionargs": {"level": 8},
+    },
+)
 ```
 
 ## Issues

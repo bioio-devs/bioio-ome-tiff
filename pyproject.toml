@@ -13,7 +13,7 @@ name = "bioio-ome-tiff"
 description = "A BioIO reader plugin for reading tiff files in the OME format."
 keywords = []
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = { text = "MIT License" }
 authors = [
   { email = "brian.whitney@alleninstitute.org", name = "bioio-devs" },
@@ -21,6 +21,7 @@ authors = [
 classifiers = [
   "Development Status :: 4 - Beta",
   "Natural Language :: English",
+  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -35,7 +36,8 @@ dependencies = [
   "ome-types[lxml]>=0.4.0",
   "pydantic>= 1.10.0",
   "PyYAML>=6.0",
-  "tifffile[zarr]>=2025.5.21",
+  'tifffile[zarr]>=2022.4.22,<2025.1.10; python_version < "3.11"',
+  'tifffile[zarr]>=2025.5.21; python_version >= "3.11"',
   "xarray>=0.16.1",
   "xmlschema",  # no pin because it's pulled in from OME types
 ]
@@ -56,7 +58,6 @@ test = [
   "pytest>=5.4.3",
   "pytest-cov>=2.9.0",
   "pytest-raises>=0.11",
-  "quilt3", # no pin to avoid pip cycling (boto is really hard to manage)
   "types-PyYAML>=6.0.12.9",
 ]
 
@@ -117,7 +118,7 @@ show_error_codes = true
 [tool.flake8]
 max-line-length = 88
 ignore = "E203,E402,W291,W503"
-min-python-version = "3.11.0"
+min-python-version = "3.10.0"
 per-file-ignores = [
   "__init__.py:F401",
 ]
