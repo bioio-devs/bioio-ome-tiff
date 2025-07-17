@@ -92,9 +92,6 @@ jobs:
   benchmark:
     needs: [check-manifest, lint]
     runs-on: ubuntu-latest
-    env:
-      BUCKET_NAME : "bioio-dev-test-resources"
-      AWS_REGION : "us-west-2"
     permissions:
       id-token: write   # This is required for requesting the JWT
       contents: read    # This is required for actions/checkout
