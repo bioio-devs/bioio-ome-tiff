@@ -12,7 +12,7 @@ from ome_types import to_xml
 from ome_types.model import OME
 
 from bioio_ome_tiff.writers import OmeTiffWriter
-
+from bioio_ome_tiff import Reader
 from ..conftest import array_constructor
 
 
@@ -96,7 +96,11 @@ def test_ome_tiff_writer_no_meta(
             scene = tiff.series[0]
             assert scene.shape == expected_read_shape
             assert scene.pages.axes == expected_read_dim_order
-
+    open_resource.close()
+    # trivial check to make sure we read what we write
+    reader = Reader(image=path)
+    scenes = reader.scenes
+    assert len(scenes) == 1
 
 @array_constructor
 @pytest.mark.parametrize(
@@ -214,7 +218,10 @@ def test_ome_tiff_writer_with_meta(
             scene = tiff.series[0]
             assert scene.shape == tuple(expected_shape)
             assert scene.pages.axes == expected_dim_order
-
+    # trivial check to make sure we read what we write
+    reader = Reader(image=path)
+    scenes = reader.scenes
+    assert len(scenes) == 1
 
 @pytest.mark.parametrize(
     "array_data, write_dim_order, read_shapes, read_dim_order",
