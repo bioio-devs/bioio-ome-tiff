@@ -103,6 +103,9 @@ def test_ome_tiff_writer_no_meta(
     scenes = reader.scenes
     if scenes:
         assert len(scenes) == 1
+    assert len(reader.shape) >= (len(expected_read_shape))
+    assert reader.shape[-1] == expected_read_shape[-1]
+    assert reader.shape[-2] == expected_read_shape[-2]
 
 
 @array_constructor
@@ -228,6 +231,9 @@ def test_ome_tiff_writer_with_meta(
     scenes = reader.scenes
     if scenes:
         assert len(scenes) == 1
+    assert len(reader.shape) >= (len(expected_shape))
+    assert reader.shape[-1] == expected_shape[-1]
+    assert reader.shape[-2] == expected_shape[-2]
 
 
 @pytest.mark.parametrize(
