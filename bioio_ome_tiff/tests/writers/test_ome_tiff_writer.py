@@ -224,9 +224,8 @@ def test_ome_tiff_writer_with_meta(
             scene = tiff.series[0]
             assert scene.shape == tuple(expected_shape)
             assert scene.pages.axes == expected_dim_order
+    open_resource.close()
     # trivial check to make sure we read what we write
-    reader = Reader(image=path)
-    scenes = reader.scenes
     reader = Reader(image=path)
     scenes = reader.scenes
     if scenes:
