@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: "3.x"
@@ -40,7 +40,7 @@ jobs:
         os: [ubuntu-latest, macOS-latest, windows-latest]
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
@@ -69,7 +69,7 @@ jobs:
       contents: read    # This is required for actions/checkout
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
       with: 
         lfs: true # For test files
     - name: Set up Python
@@ -97,7 +97,7 @@ jobs:
       contents: read    # This is required for actions/checkout
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
       with: 
         lfs: true # For test files
     - name: Set up Python
@@ -129,7 +129,7 @@ jobs:
       id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
