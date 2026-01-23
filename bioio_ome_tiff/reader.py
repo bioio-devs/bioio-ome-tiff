@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import json
 import logging
 import xml.etree.ElementTree as ET
@@ -14,16 +11,23 @@ from bioio_base import constants, dimensions, exceptions, io, reader, transforms
 from dask import delayed
 from fsspec.implementations.local import LocalFileSystem
 from fsspec.spec import AbstractFileSystem
-from ome_types import OME, from_xml
+from ome_types import OME
 from pydantic import ValidationError
 from tifffile.tifffile import TiffFile, TiffFileError, TiffTags, imread
 from xmlschema import XMLSchemaValidationError
 from xmlschema.exceptions import XMLSchemaValueError
 
+from .companion import (
+    remap_plane_axis_to_zct,
+    resolve_ome_metadata_for_tiff,
+)
 from .utils import (
-    clean_ome_xml_for_known_issues,
+    expand_dims_to_match_ome,
+    expand_missing_dims_to_match_target,
     get_coords_from_ome,
     get_dims_from_ome,
+    get_ome,
+    guess_ome_dim_order,
     physical_pixel_sizes,
 )
 
@@ -77,17 +81,18 @@ class Reader(reader.Reader):
     _fs: "AbstractFileSystem"
     _path: str
 
-    @staticmethod
-    def _get_ome(ome_xml: str, clean_metadata: bool = True) -> OME:
-        # To clean or not to clean, that is the question
-        if clean_metadata:
-            ome_xml = clean_ome_xml_for_known_issues(ome_xml)
-
-        return from_xml(ome_xml, parser="lxml")
+    # Companion-mode bookkeeping
+    _using_companion_ome: bool = False
+    _ome_image_index: int = 0
+    _companion_path: Optional[str] = None
 
     @staticmethod
     def _is_supported_image(
-        fs: AbstractFileSystem, path: str, clean_metadata: bool = True, **kwargs: Any
+        fs: AbstractFileSystem,
+        path: str,
+        clean_metadata: bool = True,
+        companion_path: Optional[str] = None,
+        **kwargs: Any,
     ) -> bool:
         try:
             with fs.open(path) as open_resource:
@@ -96,18 +101,21 @@ class Reader(reader.Reader):
                     # after Tifffile version 2023.3.15 mmstack images read all scenes
                     # into tiff.pages[0]
                     xml = tiff.pages[0].description
-                    ome = Reader._get_ome(xml, clean_metadata)
+                    ome = get_ome(xml, clean_metadata)
 
                     # Handle no images in metadata
                     # this commonly means it is a "BinaryData" OME file
                     # i.e. a non-main OME-TIFF from MicroManager or similar
                     # in this case, because it's not the main file we want to just role
                     # back to TiffReader
-                    if ome.binary_only:
+                    if ome.binary_only and companion_path is None:
                         raise exceptions.UnsupportedFileFormatError(
                             "bioio-ome-tiff",
                             path,
-                            "The OME metadata indicates this is a binary OME-TIFF.",
+                            (
+                                "Binary-only embedded OME. Provide a companion OME "
+                                "file to read this dataset."
+                            ),
                         )
                     return True
 
@@ -152,59 +160,12 @@ class Reader(reader.Reader):
                 str(e),
             )
 
-    @staticmethod
-    def _guess_ome_dim_order(tiff: TiffFile, ome: OME, scene_index: int) -> List[str]:
-        """
-        Guess the dimension order based on OME metadata and actual TIFF data.
-        Parameters
-        -------
-        tiff: TiffFile
-            A constructed TIFF object to retrieve data from.
-        ome: OME
-            A constructed OME object to retrieve data from.
-        scene_index: int
-            The current operating scene index to pull metadata from.
-        Returns
-        -------
-        dims: List[str]
-            Educated guess of the dimension order for the file
-        """
-        dims_from_ome = get_dims_from_ome(ome, scene_index)
-
-        # Assumes the dimensions coming from here are align semantically
-        # with the dimensions specified in this package. Possible T dimension
-        # is not equivalent to T dimension here. However, any dimensions
-        # not also found in OME will be omitted.
-        dims_from_tiff_axes = list(tiff.series[scene_index].axes)
-
-        # If the OME metadata does not have a "S" dimension but the tiff axes
-        # does, and the OME metadata has a "C" dimension but the tiff axes does
-        # not, then we can assume that the "S" dimension in the tiff axes is
-        # actually the "C" dimension in the OME metadata.
-        if (
-            "S" in dims_from_tiff_axes
-            and "S" not in dims_from_ome
-            and "C" in dims_from_ome
-            and "C" not in dims_from_tiff_axes
-        ):
-            dims_from_tiff_axes = [
-                dim if dim != "S" else "C" for dim in dims_from_tiff_axes
-            ]
-
-        # Adjust the guess of what the dimensions are based on the combined
-        # information from the tiff axes and the OME metadata.
-        # Necessary since while OME metadata should be source of truth, it
-        # does not provide enough data to guess which dimension is Samples
-        # for RGB files
-        dims = [dim for dim in dims_from_ome if dim not in dims_from_tiff_axes]
-        dims += [dim for dim in dims_from_tiff_axes if dim in dims_from_ome]
-        return dims
-
     def __init__(
         self,
         image: types.PathLike,
         chunk_dims: Union[str, List[str]] = dimensions.DEFAULT_CHUNK_DIMS,
         clean_metadata: bool = True,
+        companion_path: Optional[types.PathLike] = None,
         fs_kwargs: Dict[str, Any] = {},
         **kwargs: Any,
     ):
@@ -215,23 +176,39 @@ class Reader(reader.Reader):
             fs_kwargs=fs_kwargs,
         )
 
+        self._companion_path = (
+            str(companion_path) if companion_path is not None else None
+        )
+
         # Store params
         if isinstance(chunk_dims, str):
             chunk_dims = list(chunk_dims)
-
         self.chunk_dims = chunk_dims
         self.clean_metadata = clean_metadata
 
         # Enforce valid image
-        self._is_supported_image(self._fs, self._path, clean_metadata)
+        self._is_supported_image(
+            self._fs,
+            self._path,
+            clean_metadata,
+            companion_path=self._companion_path,
+        )
 
         # Get ome-types object and warn of other behaviors
         with self._fs.open(self._path) as open_resource:
             with TiffFile(open_resource, is_mmstack=False) as tiff:
-                # Get and store OME
-                self._ome = self._get_ome(
-                    tiff.pages[0].description, self.clean_metadata
+                res = resolve_ome_metadata_for_tiff(
+                    tiff=tiff,
+                    fs=self._fs,
+                    tiff_path=self._path,
+                    companion_path=self._companion_path,
+                    clean_metadata=self.clean_metadata,
+                    get_ome_fn=get_ome,
                 )
+
+                self._ome = res.ome
+                self._using_companion_ome = res.using_companion_ome
+                self._ome_image_index = res.ome_image_index
 
                 # Get and store scenes
                 self._scenes: Tuple[str, ...] = tuple(
@@ -250,45 +227,6 @@ class Reader(reader.Reader):
                         "Track progress on support here: "
                         "https://github.com/AllenCellModeling/aicsimageio/issues/196"
                     )
-
-    @staticmethod
-    def _expand_dims_to_match_ome(
-        image_data: types.ArrayLike,
-        ome: OME,
-        dims: List[str],
-        scene_index: int,
-    ) -> types.ArrayLike:
-        # Expand image_data for empty dimensions
-        ome_shape = []
-
-        # need to correct channel count if this is a RGB image
-        n_samples = ome.images[scene_index].pixels.channels[0].samples_per_pixel
-        has_multiple_samples = n_samples is not None and n_samples > 1
-        for d in dims:
-            # SizeC can represent RGB (Samples) data rather
-            # than channel data, whether or not this is the case depends
-            # on what the SamplesPerPixel are for the channel
-            if d == "C" and has_multiple_samples:
-                count = len(ome.images[scene_index].pixels.channels)
-            elif d == "S" and has_multiple_samples:
-                count = n_samples
-            else:
-                count = getattr(ome.images[scene_index].pixels, f"size_{d.lower()}")
-            ome_shape.append(count)
-
-        # The file may not have all the data but OME requires certain dimensions
-        # expand to fill
-        expand_dim_ops: List[Optional[slice]] = []
-        for d_size in ome_shape:
-            # Add empty dimension where OME requires dimension but no data exists
-            if d_size == 1:
-                expand_dim_ops.append(None)
-            # Add full slice where data exists
-            else:
-                expand_dim_ops.append(slice(None, None, None))
-
-        # Apply operators to dask array
-        return image_data[tuple(expand_dim_ops)]
 
     @staticmethod
     def _get_image_data(
@@ -344,13 +282,14 @@ class Reader(reader.Reader):
         coords: Dict[str, Union[List[Any], types.ArrayLike]],
         tiff_tags: TiffTags,
     ) -> xr.DataArray:
-        # Expand the image data to match the OME empty dimensions
-        image_data = self._expand_dims_to_match_ome(
-            image_data=image_data,
-            ome=self._ome,
-            dims=dims,
-            scene_index=self.current_scene_index,
-        )
+        # Only expand the image data if the data is actually missing axes.
+        if image_data.ndim < len(dims):
+            image_data = expand_dims_to_match_ome(
+                image_data=image_data,
+                ome=self._ome,
+                dims=dims,
+                scene_index=self.ome_scene_index,
+            )
 
         # Always order array
         if dimensions.DimensionNames.Samples in dims:
@@ -399,22 +338,53 @@ class Reader(reader.Reader):
 
                 # Unpack coords from OME
                 coords = get_coords_from_ome(
-                    ome=self._ome,
-                    scene_index=self.current_scene_index,
+                    ome=self._ome, scene_index=self.ome_scene_index
                 )
 
                 # Guess the dim order based on metadata and actual tiff data
-                dims = Reader._guess_ome_dim_order(
-                    tiff, self._ome, self.current_scene_index
-                )
+                if self._using_companion_ome:
+                    dims = get_dims_from_ome(self._ome, self.ome_scene_index)
+                else:
+                    dims = guess_ome_dim_order(tiff, self._ome, self.ome_scene_index)
 
                 # Grab the tifffile axes to use for dask array construction
                 # If any of the non-"standard" dims are present
                 # they will be filtered out during later reshape data calls
                 strictly_read_dims = list(tiff.series[self.current_scene_index].axes)
-
                 # Create the delayed dask array
                 image_data = self._create_dask_array(tiff, strictly_read_dims)
+
+                # If tifffile collapsed planes into 'I' and OME has <TiffData>,
+                # remap exactly.
+                try:
+                    image_data, strictly_read_dims = remap_plane_axis_to_zct(
+                        tiff=tiff,
+                        tiff_scene_index=self.current_scene_index,
+                        image_data=image_data,
+                        tiff_axes=strictly_read_dims,
+                        ome=self._ome,
+                        ome_image_index=self.ome_scene_index,
+                    )
+                except exceptions.UnsupportedFileFormatError:
+                    pass
+
+                # If OME includes singleton dims that tifffile omitted,
+                # expand ONLY those.
+                if image_data.ndim < len(dims) or any(
+                    d not in strictly_read_dims for d in dims
+                ):
+                    image_data, strictly_read_dims = (
+                        expand_missing_dims_to_match_target(
+                            image_data=image_data,
+                            current_dims=strictly_read_dims,
+                            target_dims=dims,
+                            ome=self._ome,
+                            scene_index=self.ome_scene_index,
+                        )
+                    )
+
+                # After remap/expansion, dims describing data are strictly_read_dims
+                dims = strictly_read_dims
 
                 return self._general_data_array_constructor(
                     image_data,
@@ -444,17 +414,47 @@ class Reader(reader.Reader):
 
                 # Unpack coords from OME
                 coords = get_coords_from_ome(
-                    ome=self._ome,
-                    scene_index=self.current_scene_index,
+                    ome=self._ome, scene_index=self.ome_scene_index
                 )
 
-                # Guess the dim order based on metadata and actual tiff data
-                dims = Reader._guess_ome_dim_order(
-                    tiff, self._ome, self.current_scene_index
-                )
+                if self._using_companion_ome:
+                    dims = get_dims_from_ome(self._ome, self.ome_scene_index)
+                else:
+                    # Guess the dim order based on metadata and actual tiff data
+                    dims = guess_ome_dim_order(tiff, self._ome, self.ome_scene_index)
 
+                strictly_read_dims = list(tiff.series[self.current_scene_index].axes)
                 # Read image into memory
                 image_data = tiff.series[self.current_scene_index].asarray()
+
+                # If tifffile collapsed planes into 'I' and OME has <TiffData>,
+                # remap exactly.
+                try:
+                    image_data, strictly_read_dims = remap_plane_axis_to_zct(
+                        tiff=tiff,
+                        tiff_scene_index=self.current_scene_index,
+                        image_data=image_data,
+                        tiff_axes=strictly_read_dims,
+                        ome=self._ome,
+                        ome_image_index=self.ome_scene_index,
+                    )
+                except exceptions.UnsupportedFileFormatError:
+                    pass
+
+                if image_data.ndim < len(dims) or any(
+                    d not in strictly_read_dims for d in dims
+                ):
+                    image_data, strictly_read_dims = (
+                        expand_missing_dims_to_match_target(
+                            image_data=image_data,
+                            current_dims=strictly_read_dims,
+                            target_dims=dims,
+                            ome=self._ome,
+                            scene_index=self.ome_scene_index,
+                        )
+                    )
+
+                dims = strictly_read_dims
 
                 return self._general_data_array_constructor(
                     image_data,
@@ -472,6 +472,18 @@ class Reader(reader.Reader):
         return self.metadata
 
     @property
+    def ome_scene_index(self) -> int:
+        """
+        The scene index into OME <Image> list.
+
+         - Normal mode: current_scene_index is the OME image index
+         - Companion mode: OME <Image> is selected by companion resolver
+        """
+        if self._using_companion_ome:
+            return self._ome_image_index
+        return self.current_scene_index
+
+    @property
     def physical_pixel_sizes(self) -> types.PhysicalPixelSizes:
         """
         Returns
@@ -484,7 +496,7 @@ class Reader(reader.Reader):
         We currently do not handle unit attachment to these values. Please see the file
         metadata for unit information.
         """
-        return physical_pixel_sizes(self.metadata, self.current_scene_index)
+        return physical_pixel_sizes(self.metadata, self.ome_scene_index)
 
     @property
     def micromanager_metadata(self) -> Dict[str | int, Any]:

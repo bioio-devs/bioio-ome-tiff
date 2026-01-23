@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+from pathlib import Path
 from typing import List, Tuple
 
 import numpy as np
@@ -10,6 +11,8 @@ from ome_types import OME
 from bioio_ome_tiff import Reader
 
 from .conftest import LOCAL_RESOURCES_DIR
+
+COMPANION_RESOURCES_DIR = LOCAL_RESOURCES_DIR / "companion_resources"
 
 
 @pytest.mark.parametrize(
@@ -462,3 +465,165 @@ def test_micromanager_metadata(filename: str) -> None:
     assert not (278 in metadata)  # non-mm keys do not exist
     assert metadata["ChNames"] == ["Cy5", "DAPI", "FITC"]
     assert metadata["MicroManagerVersion"] == "2.0.0-gamma1-20201209"
+
+
+# --- Companion OME tests ------------------------------------------------------
+def _companion_paths(main_tiff: str, companion_ome: str) -> tuple[Path, Path]:
+    return (
+        COMPANION_RESOURCES_DIR / main_tiff,
+        COMPANION_RESOURCES_DIR / companion_ome,
+    )
+
+
+@pytest.mark.parametrize(
+    "main_tiff",
+    [
+        "20250910_Test4ch_2ROI_3Z_1_w1confCy5_sg1_s1.ome.tif",
+    ],
+)
+def test_companion_binary_only_requires_companion(main_tiff: str) -> None:
+    uri = COMPANION_RESOURCES_DIR / main_tiff
+    with pytest.raises(exceptions.UnsupportedFileFormatError, match=r"Binary-only"):
+        Reader(uri)
+
+
+@pytest.mark.parametrize(
+    "main_tiff, companion_ome, set_scene, expected_scenes, expected_shape, "
+    "expected_dtype, expected_dims_order, expected_channel_names, "
+    "expected_physical_pixel_sizes",
+    [
+        pytest.param(
+            "20250910_Test4ch_2ROI_3Z_1_w1confCy5_sg1_s1.ome.tif",
+            "20250910_test4ch_2roi_3z_1_sg1.companion.ome",
+            "Image:0",
+            (
+                "Image:0",
+                "Image:1",
+                "Image:2",
+                "Image:3",
+                "Image:4",
+                "Image:5",
+                "Image:6",
+                "Image:7",
+                "Image:8",
+            ),
+            (1, 4, 3, 512, 512),
+            np.uint16,
+            dimensions.DEFAULT_DIMENSION_ORDER,  # "TCZYX"
+            ["confCy5", "confmCherry", "confGFP", "confDAPI"],
+            (2.0, 1.29721379, 1.29721379),
+            id="sg1_roi_companion_contract",
+        ),
+        pytest.param(
+            "20250910_Test4ch_2ROI_3Z_1_w1confCy5_sg2_s1.ome.tif",
+            "20250910_test4ch_2roi_3z_1_sg2.companion.ome",
+            "Image:0",
+            (
+                "Image:0",
+                "Image:1",
+                "Image:2",
+                "Image:3",
+                "Image:4",
+                "Image:5",
+            ),
+            (1, 4, 3, 512, 512),
+            np.uint16,
+            dimensions.DEFAULT_DIMENSION_ORDER,
+            ["confCy5", "confmCherry", "confGFP", "confDAPI"],
+            (2.0, 1.29721379, 1.29721379),
+            id="sg2_roi_companion_contract",
+        ),
+    ],
+)
+def test_companion_ome_tiff_reader_contract(
+    main_tiff: str,
+    companion_ome: str,
+    set_scene: str,
+    expected_scenes: Tuple[str, ...],
+    expected_shape: Tuple[int, ...],
+    expected_dtype: np.dtype,
+    expected_dims_order: str,
+    expected_channel_names: List[str],
+    expected_physical_pixel_sizes: Tuple[float, float, float],
+) -> None:
+    """
+    Companion datasets should satisfy the same reader contract checks.
+    """
+    uri, comp = _companion_paths(main_tiff, companion_ome)
+
+    test_utilities.run_image_file_checks(
+        ImageContainer=Reader,
+        image=uri,
+        set_scene=set_scene,
+        expected_scenes=expected_scenes,
+        expected_current_scene=set_scene,
+        expected_shape=expected_shape,
+        expected_dtype=expected_dtype,
+        expected_dims_order=expected_dims_order,
+        expected_channel_names=expected_channel_names,
+        expected_physical_pixel_sizes=expected_physical_pixel_sizes,
+        expected_metadata_type=OME,
+        reader_kwargs=dict(
+            fs_kwargs=dict(anon=True),
+            companion_path=comp,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "main_tiff, companion_ome",
+    [
+        (
+            "20250910_Test4ch_2ROI_3Z_1_w1confCy5_sg1_s1.ome.tif",
+            "20250910_test4ch_2roi_3z_1_sg1.companion.ome",
+        ),
+    ],
+)
+def test_companion_mode_sanity_selected_image_has_tiffdata(
+    main_tiff: str, companion_ome: str
+) -> None:
+    uri, comp = _companion_paths(main_tiff, companion_ome)
+
+    img = Reader(uri, companion_path=comp)
+
+    assert isinstance(img.ome_metadata, OME)
+    assert img.scenes is not None and len(img.scenes) > 0
+
+    assert getattr(img, "_using_companion_ome", False) is True
+    assert isinstance(getattr(img, "_ome_image_index", None), int)
+
+    ome_idx = img._ome_image_index
+    tds = list(img.ome_metadata.images[ome_idx].pixels.tiff_data_blocks or [])
+    assert len(tds) > 0
+
+
+@pytest.mark.parametrize(
+    "main_tiff_a, companion_ome_a, main_tiff_b, companion_ome_b",
+    [
+        (
+            "20250910_Test4ch_2ROI_3Z_1_w1confCy5_sg1_s1.ome.tif",
+            "20250910_test4ch_2roi_3z_1_sg1.companion.ome",
+            "20250910_Test4ch_2ROI_3Z_1_w1confCy5_sg2_s1.ome.tif",
+            "20250910_test4ch_2roi_3z_1_sg2.companion.ome",
+        ),
+    ],
+)
+def test_companion_rois_match_shape_and_dims(
+    main_tiff_a: str,
+    companion_ome_a: str,
+    main_tiff_b: str,
+    companion_ome_b: str,
+) -> None:
+    uri_a, comp_a = _companion_paths(main_tiff_a, companion_ome_a)
+    uri_b, comp_b = _companion_paths(main_tiff_b, companion_ome_b)
+
+    a = Reader(uri_a, companion_path=comp_a)
+    b = Reader(uri_b, companion_path=comp_b)
+
+    da0 = a.xarray_dask_data
+    da1 = b.xarray_dask_data
+
+    assert da0 is not None and da1 is not None
+    assert tuple(da0.dims) == tuple("TCZYX")
+    assert tuple(da1.dims) == tuple("TCZYX")
+    assert tuple(da0.shape) == tuple(da1.shape)

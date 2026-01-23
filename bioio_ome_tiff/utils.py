@@ -6,14 +6,16 @@ import os
 import re
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 from xml.etree import ElementTree as ET
 
+import dask.array as da
 import lxml.etree
 import numpy as np
-from bioio_base import dimensions, types
-from ome_types import OME
+from bioio_base import dimensions, exceptions, types
+from ome_types import OME, from_xml
 from ome_types.model.simple_types import PixelType
+from tifffile import TiffFile
 
 ###############################################################################
 
@@ -731,3 +733,152 @@ def generate_coord_array(
     See: https://github.com/AllenCellModeling/aicsimageio/issues/249
     """
     return np.arange(start, stop) * step_size
+
+
+def get_ome(ome_xml: str, clean_metadata: bool = True) -> OME:
+    # To clean or not to clean, that is the question
+    if clean_metadata:
+        ome_xml = clean_ome_xml_for_known_issues(ome_xml)
+
+    return from_xml(ome_xml, parser="lxml")
+
+
+def guess_ome_dim_order(tiff: TiffFile, ome: OME, scene_index: int) -> List[str]:
+    """
+    Guess the dimension order based on OME metadata and actual TIFF data.
+    Parameters
+    -------
+    tiff: TiffFile
+        A constructed TIFF object to retrieve data from.
+    ome: OME
+        A constructed OME object to retrieve data from.
+    scene_index: int
+        The current operating scene index to pull metadata from.
+    Returns
+    -------
+    dims: List[str]
+        Educated guess of the dimension order for the file
+    """
+    dims_from_ome = get_dims_from_ome(ome, scene_index)
+
+    # Assumes the dimensions coming from here are align semantically
+    # with the dimensions specified in this package. Possible T dimension
+    # is not equivalent to T dimension here. However, any dimensions
+    # not also found in OME will be omitted.
+    dims_from_tiff_axes = list(tiff.series[scene_index].axes)
+
+    # If the OME metadata does not have a "S" dimension but the tiff axes
+    # does, and the OME metadata has a "C" dimension but the tiff axes does
+    # not, then we can assume that the "S" dimension in the tiff axes is
+    # actually the "C" dimension in the OME metadata.
+    if (
+        "S" in dims_from_tiff_axes
+        and "S" not in dims_from_ome
+        and "C" in dims_from_ome
+        and "C" not in dims_from_tiff_axes
+    ):
+        dims_from_tiff_axes = [
+            dim if dim != "S" else "C" for dim in dims_from_tiff_axes
+        ]
+
+    # Adjust the guess of what the dimensions are based on the combined
+    # information from the tiff axes and the OME metadata.
+    # Necessary since while OME metadata should be source of truth, it
+    # does not provide enough data to guess which dimension is Samples
+    # for RGB files
+    dims = [dim for dim in dims_from_ome if dim not in dims_from_tiff_axes]
+    dims += [dim for dim in dims_from_tiff_axes if dim in dims_from_ome]
+    return dims
+
+
+def expand_missing_dims_to_match_target(
+    image_data: types.ArrayLike,
+    current_dims: List[str],
+    target_dims: List[str],
+    ome: OME,
+    scene_index: int,
+) -> Tuple[types.ArrayLike, List[str]]:
+    """
+    Expand *only missing* singleton dimensions so that current_dims can match
+    target_dims (in order).
+
+    We only insert a new axis when:
+    - dim is missing from current_dims, AND
+    - the OME-reported size for that dim is exactly 1.
+
+    If a missing dim has OME size > 1, we cannot conjure data, so we error.
+    """
+    cur = list(current_dims)
+    pixels = ome.images[scene_index].pixels
+
+    def _expected_size(dim: str) -> int:
+        n_samples = pixels.channels[0].samples_per_pixel
+        has_multiple_samples = n_samples is not None and int(n_samples) > 1
+        if dim == "C" and has_multiple_samples:
+            return int(len(pixels.channels))
+        if dim == "S" and has_multiple_samples:
+            return int(n_samples)
+        return int(getattr(pixels, f"size_{dim.lower()}"))
+
+    for axis, d in enumerate(target_dims):
+        if d in cur:
+            continue
+
+        exp = _expected_size(d)
+        if exp != 1:
+            raise exceptions.UnsupportedFileFormatError(
+                "bioio-ome-tiff",
+                "",
+                (
+                    f"Cannot expand missing dim '{d}' (expected size {exp} != 1). "
+                    f"Current dims={cur}, target dims={target_dims}"
+                ),
+            )
+
+        if isinstance(image_data, da.Array):
+            image_data = da.expand_dims(image_data, axis=axis)
+        else:
+            image_data = np.expand_dims(image_data, axis=axis)
+
+        cur.insert(axis, d)
+
+    return image_data, cur
+
+
+def expand_dims_to_match_ome(
+    image_data: types.ArrayLike,
+    ome: OME,
+    dims: List[str],
+    scene_index: int,
+) -> types.ArrayLike:
+    # Expand image_data for empty dimensions
+    ome_shape = []
+
+    # need to correct channel count if this is a RGB image
+    n_samples = ome.images[scene_index].pixels.channels[0].samples_per_pixel
+    has_multiple_samples = n_samples is not None and n_samples > 1
+    for d in dims:
+        # SizeC can represent RGB (Samples) data rather
+        # than channel data, whether or not this is the case depends
+        # on what the SamplesPerPixel are for the channel
+        if d == "C" and has_multiple_samples:
+            count = len(ome.images[scene_index].pixels.channels)
+        elif d == "S" and has_multiple_samples:
+            count = n_samples
+        else:
+            count = getattr(ome.images[scene_index].pixels, f"size_{d.lower()}")
+        ome_shape.append(count)
+
+    # The file may not have all the data but OME requires certain dimensions
+    # expand to fill
+    expand_dim_ops: List[Optional[slice]] = []
+    for d_size in ome_shape:
+        # Add empty dimension where OME requires dimension but no data exists
+        if d_size == 1:
+            expand_dim_ops.append(None)
+        # Add full slice where data exists
+        else:
+            expand_dim_ops.append(slice(None, None, None))
+
+    # Apply operators to dask array
+    return image_data[tuple(expand_dim_ops)]
