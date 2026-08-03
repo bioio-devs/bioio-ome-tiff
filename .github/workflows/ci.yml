@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
       - run: pip install check-manifest && check-manifest
@@ -56,7 +56,7 @@ jobs:
       with: 
         lfs: true # For test files
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.13"
     - uses: extractions/setup-just@v4
@@ -86,7 +86,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.10"
     - name: Install Dependencies
