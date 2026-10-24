@@ -654,11 +654,18 @@ def get_coords_from_ome(
     # If non global linear timescale, we need to create an array of every plane
     # time value
     elif scene_meta.pixels.size_t > 1:
-        if len(scene_meta.pixels.planes) > 0:
-            t_index_to_delta_map = {
-                p.the_t: p.delta_t for p in scene_meta.pixels.planes
-            }
-            coords[dimensions.DimensionNames.Time] = list(t_index_to_delta_map.values())
+        # Planes are optional and DeltaT is optional on each plane, so only use
+        # them when every timepoint has a DeltaT
+        t_index_to_delta_map = {
+            p.the_t: p.delta_t
+            for p in scene_meta.pixels.planes
+            if p.delta_t is not None
+        }
+        t_indices = range(scene_meta.pixels.size_t)
+        if all(t in t_index_to_delta_map for t in t_indices):
+            coords[dimensions.DimensionNames.Time] = [
+                t_index_to_delta_map[t] for t in t_indices
+            ]
         else:
             coords[dimensions.DimensionNames.Time] = np.linspace(
                 0,
