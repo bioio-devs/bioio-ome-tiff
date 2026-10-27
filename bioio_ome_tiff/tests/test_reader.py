@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+from pathlib import Path
 from typing import List, Tuple
 
 import numpy as np
 import pytest
+import tifffile
 from bioio_base import dimensions, exceptions, test_utilities
-from ome_types import OME
+from ome_types import OME, model
 
 from bioio_ome_tiff import Reader
 
@@ -462,3 +464,57 @@ def test_micromanager_metadata(filename: str) -> None:
     assert not (278 in metadata)  # non-mm keys do not exist
     assert metadata["ChNames"] == ["Cy5", "DAPI", "FITC"]
     assert metadata["MicroManagerVersion"] == "2.0.0-gamma1-20201209"
+
+
+@pytest.mark.parametrize(
+    "planes, expected_time_coords",
+    [
+        # Planes without DeltaT
+        (
+            [model.Plane(the_t=t, the_c=0, the_z=0, position_x=1.0) for t in range(3)],
+            [0, 1, 2],
+        ),
+        # Planes for only some of the timepoints
+        ([model.Plane(the_t=0, the_c=0, the_z=0, delta_t=0.0)], [0, 1, 2]),
+        # Planes listed out of order
+        (
+            [
+                model.Plane(the_t=t, the_c=0, the_z=0, delta_t=5.0 * t)
+                for t in (2, 0, 1)
+            ],
+            [0, 5, 10],
+        ),
+    ],
+)
+def test_time_coords_from_planes(
+    tmp_path: Path, planes: List[model.Plane], expected_time_coords: List[float]
+) -> None:
+    pixels = model.Pixels(
+        dimension_order="XYZCT",
+        type="uint8",
+        size_t=3,
+        size_c=1,
+        size_z=1,
+        size_y=4,
+        size_x=4,
+        channels=[model.Channel(id="Channel:0:0", samples_per_pixel=1)],
+        tiff_data_blocks=[model.TiffData(plane_count=3)],
+        planes=planes,
+    )
+    ome = OME(images=[model.Image(id="Image:0", pixels=pixels)])
+    path = tmp_path / "planes.ome.tiff"
+    tifffile.imwrite(
+        path,
+        np.zeros((3, 4, 4), dtype=np.uint8),
+        ome=True,
+        photometric="minisblack",
+        metadata={"axes": "TYX"},
+    )
+    tifffile.tiffcomment(path, ome.to_xml().encode())
+
+    img = Reader(path)
+
+    np.testing.assert_array_equal(
+        img.xarray_dask_data.coords[dimensions.DimensionNames.Time].values,
+        expected_time_coords,
+    )
