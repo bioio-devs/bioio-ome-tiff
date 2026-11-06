@@ -497,6 +497,33 @@ def test_ome_tiff_writer_common_metadata(
                 assert scene.pages.axes == read_dim_order[i]
 
 
+@pytest.mark.parametrize(
+    "dim_order, sizes, expected",
+    [
+        ("CYX", [0.1, 0.2], (None, 0.1, 0.2)),
+        ("YX", (0.1, 0.2), (None, 0.1, 0.2)),
+        ("ZYX", [0.3, 0.1, 0.2], (0.3, 0.1, 0.2)),
+    ],
+)
+def test_ome_tiff_writer_spatial_pixel_sizes(
+    tmp_path: pathlib.Path,
+    dim_order: str,
+    sizes: List[float],
+    expected: Tuple[Optional[float], ...],
+) -> None:
+    shape = tuple(2 if d != "Y" and d != "X" else 8 for d in dim_order)
+    save_uri = tmp_path / "f.ome.tiff"
+
+    OmeTiffWriter.save(
+        np.zeros(shape, dtype=np.uint8),
+        save_uri,
+        dim_order=dim_order,
+        physical_pixel_sizes=sizes,
+    )
+
+    assert tuple(Reader(save_uri).physical_pixel_sizes) == expected
+
+
 def test_ome_tiff_writer_custom_compression(tmp_path: pathlib.Path) -> None:
     # Create array
     arr = np.random.rand(5, 16, 16)
