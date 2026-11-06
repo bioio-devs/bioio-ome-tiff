@@ -426,8 +426,7 @@ def clean_ome_xml_for_known_issues(xml: str) -> str:
                     pixels.append(plane)
 
                 metadata_changes.append(
-                    f"Reordered children of Pixels element at "
-                    f"position {pixels_index}."
+                    f"Reordered children of Pixels element at position {pixels_index}."
                 )
 
     # This is a result of dumping basically all experiement metadata

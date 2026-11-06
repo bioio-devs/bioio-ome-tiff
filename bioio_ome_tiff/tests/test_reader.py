@@ -261,11 +261,7 @@ def test_ome_tiff_reader_large_files(
 
 
 @pytest.mark.parametrize(
-    "filename, "
-    "first_scene_id, "
-    "first_scene_shape, "
-    "second_scene_id, "
-    "second_scene_shape",
+    "filename, first_scene_id, first_scene_shape, second_scene_id, second_scene_shape",
     [
         (
             "s_3_t_1_c_3_z_5.ome.tiff",
@@ -461,7 +457,7 @@ def test_micromanager_metadata(filename: str) -> None:
 
     # Test the transform
     assert isinstance(metadata, dict)
-    assert not (278 in metadata)  # non-mm keys do not exist
+    assert 278 not in metadata  # non-mm keys do not exist
     assert metadata["ChNames"] == ["Cy5", "DAPI", "FITC"]
     assert metadata["MicroManagerVersion"] == "2.0.0-gamma1-20201209"
 
