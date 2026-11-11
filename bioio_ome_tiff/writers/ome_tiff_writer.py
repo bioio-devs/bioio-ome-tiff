@@ -97,7 +97,9 @@ class OmeTiffWriter(Writer):
             of the form "Image:image_index"
         physical_pixel_sizes: Optional[Union[biob.types.PhysicalPixelSizes,
                 List[biob.types.PhysicalPixelSizes]]]
-            List of numbers representing the physical pixel sizes in Z, Y, X in microns
+            Physical pixel sizes in microns. Either a PhysicalPixelSizes (or a list of
+            them, one per image), or a plain list of numbers with one value for each
+            spatial dimension (Z, Y, X) present in dim_order, e.g. [Y, X] for "CYX".
             Default: None
         channel_colors: Optional[Union[List[List[int]], List[Optional[List[List[int]]]]]
             List of rgb color values per channel or a list of lists for each image.
@@ -232,7 +234,27 @@ class OmeTiffWriter(Writer):
             dim_order = [dim_order] * num_images
         if image_name is None or isinstance(image_name, str):
             image_name = [image_name] * num_images
-        if isinstance(physical_pixel_sizes, tuple):
+        if isinstance(physical_pixel_sizes, (list, tuple)) and isinstance(
+            physical_pixel_sizes[0], (int, float)
+        ):
+            # Sizes for only the spatial dims present, e.g. [Y, X] for "CYX"
+            names = biob.dimensions.DimensionNames
+            spatial = (names.SpatialZ, names.SpatialY, names.SpatialX)
+            sizes_per_image = []
+            for image, order in zip(data, dim_order):
+                order = order or biob.dimensions.DEFAULT_DIMENSION_ORDER[-image.ndim :]
+                sizes = dict(
+                    zip([d for d in order if d in spatial], physical_pixel_sizes)
+                )
+                sizes_per_image.append(
+                    biob.types.PhysicalPixelSizes(
+                        sizes.get(names.SpatialZ),
+                        sizes.get(names.SpatialY),
+                        sizes.get(names.SpatialX),
+                    )
+                )
+            physical_pixel_sizes = sizes_per_image
+        elif isinstance(physical_pixel_sizes, tuple):
             physical_pixel_sizes = [physical_pixel_sizes] * num_images
         elif physical_pixel_sizes is None:
             physical_pixel_sizes = [
