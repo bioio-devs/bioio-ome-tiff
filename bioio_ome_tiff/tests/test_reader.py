@@ -306,19 +306,18 @@ def test_multi_scene_ome_tiff_reader(
     "filename, "
     "set_scene, "
     "expected_scenes, "
+    "expected_resolution_levels, "
     "expected_shape, "
     "expected_dtype, "
     "expected_dims_order, "
     "expected_channel_names, "
     "expected_physical_pixel_sizes",
     [
-        # TODO:
-        # Select a different level besides level 0
-        # TiffReader / Reader defaults to reading level 0
         (
             "variable_scene_shape_first_scene_pyramid.ome.tiff",
             "Image:0",
             ("Image:0", "Image:1"),
+            (0, 1, 2, 3),
             (1, 3, 1, 6184, 7712),
             np.uint16,
             dimensions.DEFAULT_DIMENSION_ORDER,
@@ -329,6 +328,7 @@ def test_multi_scene_ome_tiff_reader(
             "variable_scene_shape_first_scene_pyramid.ome.tiff",
             "Image:1",
             ("Image:0", "Image:1"),
+            (0,),
             (1, 1, 1, 2030, 422),
             np.uint8,
             dimensions.DEFAULT_DIMENSION_ORDER,
@@ -341,6 +341,7 @@ def test_multi_resolution_ome_tiff_reader(
     filename: str,
     set_scene: str,
     expected_scenes: Tuple[str, ...],
+    expected_resolution_levels: Tuple[int, ...],
     expected_shape: Tuple[int, ...],
     expected_dtype: np.dtype,
     expected_dims_order: str,
@@ -357,6 +358,7 @@ def test_multi_resolution_ome_tiff_reader(
         set_scene=set_scene,
         expected_scenes=expected_scenes,
         expected_current_scene=set_scene,
+        expected_resolution_levels=expected_resolution_levels,
         expected_shape=expected_shape,
         expected_dtype=expected_dtype,
         expected_dims_order=expected_dims_order,
@@ -486,8 +488,8 @@ def test_time_coords_from_planes(
     tmp_path: Path, planes: List[model.Plane], expected_time_coords: List[float]
 ) -> None:
     pixels = model.Pixels(
-        dimension_order="XYZCT",
-        type="uint8",
+        dimension_order=model.Pixels_DimensionOrder.XYZCT,
+        type=model.PixelType.UINT8,
         size_t=3,
         size_c=1,
         size_z=1,
