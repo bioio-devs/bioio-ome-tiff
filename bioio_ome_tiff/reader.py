@@ -10,18 +10,20 @@ from urllib.error import URLError
 import dask.array as da
 import numpy as np
 import xarray as xr
+import zarr
 from bioio_base import constants, dimensions, exceptions, io, reader, transforms, types
 from dask import delayed
 from fsspec.implementations.local import LocalFileSystem
 from fsspec.spec import AbstractFileSystem
 from ome_types import OME, from_xml
 from pydantic import ValidationError
-from tifffile.tifffile import TiffFile, TiffFileError, TiffTags, imread
+from tifffile.tifffile import TiffFile, TiffFileError, TiffPageSeries
 from xmlschema import XMLSchemaValidationError
 from xmlschema.exceptions import XMLSchemaValueError
 
 from .utils import (
     clean_ome_xml_for_known_issues,
+    generate_coord_array,
     get_coords_from_ome,
     get_dims_from_ome,
     physical_pixel_sizes,
@@ -30,6 +32,9 @@ from .utils import (
 ###############################################################################
 
 log = logging.getLogger(__name__)
+
+# Keep whole-page tasks for small stripped images to avoid per-strip overhead.
+_MIN_STRIP_CHUNK_BYTES = 64 * 1024**2
 
 ###############################################################################
 
@@ -43,11 +48,11 @@ class Reader(reader.Reader):
     image: types.PathLike
         Path to image file to construct Reader for.
     chunk_dims: List[str]
-        Which dimensions to create chunks for.
+        Which dimensions to keep together in each chunk.
         Default: DEFAULT_CHUNK_DIMS
-        Note: Dimensions.SpatialY, Dimensions.SpatialX, and DimensionNames.Samples,
-        will always be added to the list if not present during dask array
-        construction.
+        Y and X follow TIFF tiles, or strips for multi-strip pages of at least
+        64 MiB decoded. Other pages and series with mixed segment layouts use
+        whole YX planes. Samples stay together.
     clean_metadata: bool
         Should the OME XML metadata found in the file be cleaned for known
         AICSImageIO 3.x and earlier created errors.
@@ -70,7 +75,7 @@ class Reader(reader.Reader):
     _mosaic_xarray_data: Optional["xr.DataArray"] = None
     _dims: Optional[dimensions.Dimensions] = None
     _metadata: Optional[Any] = None
-    _scenes: Optional[Tuple[str, ...]] = None
+    _scenes: Tuple[str, ...]
     _current_scene_index: int = 0
     # Do not provide default value because
     # they may not need to be used by your reader (i.e. input param is an array)
@@ -95,7 +100,7 @@ class Reader(reader.Reader):
                     # Get first page description (aka the description tag in general)
                     # after Tifffile version 2023.3.15 mmstack images read all scenes
                     # into tiff.pages[0]
-                    xml = tiff.pages[0].description
+                    xml = tiff.pages.first.description
                     ome = Reader._get_ome(xml, clean_metadata)
 
                     # Handle no images in metadata
@@ -153,13 +158,15 @@ class Reader(reader.Reader):
             )
 
     @staticmethod
-    def _guess_ome_dim_order(tiff: TiffFile, ome: OME, scene_index: int) -> List[str]:
+    def _guess_ome_dim_order(
+        series: TiffPageSeries, ome: OME, scene_index: int
+    ) -> List[str]:
         """
         Guess the dimension order based on OME metadata and actual TIFF data.
         Parameters
         -------
-        tiff: TiffFile
-            A constructed TIFF object to retrieve data from.
+        series: TiffPageSeries
+            The selected TIFF image series and resolution level.
         ome: OME
             A constructed OME object to retrieve data from.
         scene_index: int
@@ -175,7 +182,7 @@ class Reader(reader.Reader):
         # with the dimensions specified in this package. Possible T dimension
         # is not equivalent to T dimension here. However, any dimensions
         # not also found in OME will be omitted.
-        dims_from_tiff_axes = list(tiff.series[scene_index].axes)
+        dims_from_tiff_axes = list(series.axes)
 
         # If the OME metadata does not have a "S" dimension but the tiff axes
         # does, and the OME metadata has a "C" dimension but the tiff axes does
@@ -216,10 +223,7 @@ class Reader(reader.Reader):
         )
 
         # Store params
-        if isinstance(chunk_dims, str):
-            chunk_dims = list(chunk_dims)
-
-        self.chunk_dims = chunk_dims
+        self.chunk_dims = list(chunk_dims)
         self.clean_metadata = clean_metadata
 
         # Enforce valid image
@@ -230,7 +234,7 @@ class Reader(reader.Reader):
             with TiffFile(open_resource, is_mmstack=False) as tiff:
                 # Get and store OME
                 self._ome = self._get_ome(
-                    tiff.pages[0].description, self.clean_metadata
+                    tiff.pages.first.description, self.clean_metadata
                 )
 
                 # Get and store scenes
@@ -265,6 +269,7 @@ class Reader(reader.Reader):
         n_samples = ome.images[scene_index].pixels.channels[0].samples_per_pixel
         has_multiple_samples = n_samples is not None and n_samples > 1
         for d in dims:
+            count: Optional[int]
             # SizeC can represent RGB (Samples) data rather
             # than channel data, whether or not this is the case depends
             # on what the SamplesPerPixel are for the channel
@@ -295,6 +300,7 @@ class Reader(reader.Reader):
         fs: AbstractFileSystem,
         path: str,
         scene: int,
+        level: int,
         retrieve_indices: Tuple[Union[int, slice]],
         transpose_indices: List[int],
     ) -> np.ndarray:
@@ -309,6 +315,8 @@ class Reader(reader.Reader):
             The path to file to read.
         scene: int
             The scene index to pull the chunk from.
+        level: int
+            The resolution level to read.
         retrieve_indices: Tuple[Union[int, slice]]
             The image indices to retrieve.
         transpose_indices: List[int]
@@ -318,15 +326,11 @@ class Reader(reader.Reader):
         chunk: np.ndarray
             The image chunk as a numpy array.
         """
-        with fs.open(path) as open_resource:
-            with imread(
-                open_resource,
-                aszarr=True,
-                series=scene,
-                level=0,
-                chunkmode="page",
-                is_mmstack=False,
-            ) as store:
+        with (
+            fs.open(path) as open_resource,
+            TiffFile(open_resource, is_mmstack=False) as tiff,
+        ):
+            with tiff.aszarr(series=scene, level=level, chunkmode="page") as store:
                 arr = da.from_zarr(store)
                 arr = arr.transpose(transpose_indices)
 
@@ -337,12 +341,35 @@ class Reader(reader.Reader):
                 # handoff _during_ a read.
                 return arr[retrieve_indices].compute(scheduler="synchronous")
 
+    @staticmethod
+    def _get_native_chunk(
+        fs: AbstractFileSystem,
+        path: str,
+        scene: int,
+        level: int,
+        chunk_shape: Tuple[int, ...],
+        block_id: Tuple[int, ...],
+    ) -> np.ndarray:
+        # The graph carries only the filesystem, path, series indices and bounds.
+        selection = tuple(
+            slice(index * size, (index + 1) * size)
+            for index, size in zip(block_id, chunk_shape)
+        )
+        with (
+            fs.open(path) as open_resource,
+            TiffFile(open_resource, is_mmstack=False) as tiff,
+        ):
+            with tiff.aszarr(
+                series=scene, level=level, maxworkers=1, read_only=True
+            ) as store:
+                return np.asarray(zarr.open_array(store, mode="r")[selection])
+
     def _general_data_array_constructor(
         self,
         image_data: types.ArrayLike,
         dims: List[str],
         coords: Dict[str, Union[List[Any], types.ArrayLike]],
-        tiff_tags: TiffTags,
+        tiff_tags: Dict[int, Any],
     ) -> xr.DataArray:
         # Expand the image data to match the OME empty dimensions
         image_data = self._expand_dims_to_match_ome(
@@ -364,6 +391,15 @@ class Reader(reader.Reader):
             "".join(dims),
             out_order,
         )
+
+        if self.current_resolution_level:
+            y_size = image_data.shape[out_order.index("Y")]
+            x_size = image_data.shape[out_order.index("X")]
+            sizes = self._level_pixel_sizes(y_size, x_size)
+            if sizes.Y is not None:
+                coords["Y"] = generate_coord_array(0, y_size, sizes.Y)
+            if sizes.X is not None:
+                coords["X"] = generate_coord_array(0, x_size, sizes.X)
 
         # Reset dims after transform
         dims = [d for d in out_order]
@@ -394,8 +430,11 @@ class Reader(reader.Reader):
         """
         with self._fs.open(self._path) as open_resource:
             with TiffFile(open_resource, is_mmstack=False) as tiff:
+                series = tiff.series[self.current_scene_index].levels[
+                    self.current_resolution_level
+                ]
                 # Get unprocessed metadata from tags
-                tiff_tags = self._get_tiff_tags(tiff)
+                tiff_tags = self._get_tiff_tags(series)
 
                 # Unpack coords from OME
                 coords = get_coords_from_ome(
@@ -405,16 +444,11 @@ class Reader(reader.Reader):
 
                 # Guess the dim order based on metadata and actual tiff data
                 dims = Reader._guess_ome_dim_order(
-                    tiff, self._ome, self.current_scene_index
+                    series, self._ome, self.current_scene_index
                 )
 
-                # Grab the tifffile axes to use for dask array construction
-                # If any of the non-"standard" dims are present
-                # they will be filtered out during later reshape data calls
-                strictly_read_dims = list(tiff.series[self.current_scene_index].axes)
-
                 # Create the delayed dask array
-                image_data = self._create_dask_array(tiff, strictly_read_dims)
+                image_data = self._create_dask_array(series)
 
                 return self._general_data_array_constructor(
                     image_data,
@@ -439,8 +473,11 @@ class Reader(reader.Reader):
         """
         with self._fs.open(self._path) as open_resource:
             with TiffFile(open_resource, is_mmstack=False) as tiff:
+                series = tiff.series[self.current_scene_index].levels[
+                    self.current_resolution_level
+                ]
                 # Get unprocessed metadata from tags
-                tiff_tags = self._get_tiff_tags(tiff)
+                tiff_tags = self._get_tiff_tags(series)
 
                 # Unpack coords from OME
                 coords = get_coords_from_ome(
@@ -450,11 +487,11 @@ class Reader(reader.Reader):
 
                 # Guess the dim order based on metadata and actual tiff data
                 dims = Reader._guess_ome_dim_order(
-                    tiff, self._ome, self.current_scene_index
+                    series, self._ome, self.current_scene_index
                 )
 
                 # Read image into memory
-                image_data = tiff.series[self.current_scene_index].asarray()
+                image_data = series.asarray()
 
                 return self._general_data_array_constructor(
                     image_data,
@@ -464,8 +501,22 @@ class Reader(reader.Reader):
                 )
 
     @property
-    def scenes(self) -> Optional[Tuple[str, ...]]:
+    def scenes(self) -> Tuple[str, ...]:
         return self._scenes
+
+    @property
+    def resolution_levels(self) -> Tuple[int, ...]:
+        with (
+            self._fs.open(self._path) as open_resource,
+            TiffFile(open_resource, is_mmstack=False) as tiff,
+        ):
+            return tuple(range(len(tiff.series[self.current_scene_index].levels)))
+
+    def set_scene(self, scene_id: Union[str, int]) -> None:
+        previous_scene = self.current_scene_index
+        super().set_scene(scene_id)
+        if self.current_scene_index != previous_scene:
+            self._current_resolution_level = 0
 
     @property
     def ome_metadata(self) -> OME:
@@ -484,7 +535,18 @@ class Reader(reader.Reader):
         We currently do not handle unit attachment to these values. Please see the file
         metadata for unit information.
         """
-        return physical_pixel_sizes(self.metadata, self.current_scene_index)
+        if self.current_resolution_level:
+            return self._level_pixel_sizes(self.dims.Y, self.dims.X)
+        return physical_pixel_sizes(self._ome, self.current_scene_index)
+
+    def _level_pixel_sizes(self, y: int, x: int) -> types.PhysicalPixelSizes:
+        sizes = physical_pixel_sizes(self._ome, self.current_scene_index)
+        pixels = self._ome.images[self.current_scene_index].pixels
+        return types.PhysicalPixelSizes(
+            sizes.Z,
+            None if sizes.Y is None else sizes.Y * pixels.size_y / y,
+            None if sizes.X is None else sizes.X * pixels.size_x / x,
+        )
 
     @property
     def micromanager_metadata(self) -> Dict[str | int, Any]:
@@ -505,7 +567,7 @@ class Reader(reader.Reader):
         with self._fs.open(self._path) as open_resource:
             with TiffFile(open_resource, is_mmstack=False) as tiff:
                 # Iterate over tiff tags
-                tiff_tags = self._get_tiff_tags(tiff)
+                tiff_tags = self._get_tiff_tags(tiff.series[self.current_scene_index])
                 for k, v in tiff_tags.items():
                     # break up key 50839 which is where MM metadata lives
                     # 50839 is a private tag registered with Adobe
@@ -518,56 +580,65 @@ class Reader(reader.Reader):
                             pass
         return self._micromanager_metadata
 
-    def _get_tiff_tags(self, tiff: TiffFile, process: bool = True) -> TiffTags:
-        unprocessed_tags = tiff.series[self.current_scene_index].pages[0].tags
-        if not process:
-            return unprocessed_tags
+    @staticmethod
+    def _get_tiff_tags(series: TiffPageSeries) -> Dict[int, Any]:
+        return {code: tag.value for code, tag in series.keyframe.tags.items()}
 
-        # Create dict of tag and value
-        tags: Dict[int, str] = {}
-        for code, tag in unprocessed_tags.items():
-            tags[code] = tag.value
-
-        return tags
-
-    def _create_dask_array(
-        self, tiff: TiffFile, selected_scene_dims_list: List[str]
-    ) -> da.Array:
+    def _create_dask_array(self, series: TiffPageSeries) -> da.Array:
         """
         Creates a delayed dask array for the file.
         Parameters
         ----------
-        tiff: TiffFile
-            An open TiffFile for processing.
-        selected_scene_dims_list: List[str]
-            The dimensions to use for constructing the array with.
-            Required for managing chunked vs non-chunked dimensions.
+        series: TiffPageSeries
+            The open TIFF series at the selected resolution.
         Returns
         -------
         image_data: da.Array
             The fully constructed and fully delayed image as a Dask Array object.
         """
-        # Always add the plane dimensions if not present already
-        for dim in dimensions.REQUIRED_CHUNK_DIMS:
-            if dim not in self.chunk_dims:
-                self.chunk_dims.append(dim)
+        chunk_dims = {dim.upper() for dim in self.chunk_dims}
+        chunk_dims.update(dimensions.REQUIRED_CHUNK_DIMS)
+        keyframe = series.keyframe
+        spatial_chunks = {}
+        if keyframe.is_tiled:
+            spatial_chunks = {"Y": keyframe.tilelength, "X": keyframe.tilewidth}
+        elif (
+            0 < keyframe.rowsperstrip < keyframe.imagelength
+            and keyframe.size * series.dtype.itemsize >= _MIN_STRIP_CHUNK_BYTES
+        ):
+            spatial_chunks = {"Y": keyframe.rowsperstrip}
 
-        # Safety measure / "feature"
-        self.chunk_dims = [d.upper() for d in self.chunk_dims]
+        # TIFF companions can have different segment layouts in one OME scene.
+        # A native Zarr store uses a single chunk grid for the entire series.
+        if spatial_chunks and series.is_multifile:
+            for page in series:
+                if page is None or page.keyframe is None:
+                    continue
+                if (
+                    page.keyframe.chunks != keyframe.chunks
+                    or page.keyframe.shaped != keyframe.shaped
+                ):
+                    spatial_chunks.clear()
+                    break
 
-        # Construct delayed dask array
-        selected_scene = tiff.series[self.current_scene_index]
-        selected_scene_dims = "".join(selected_scene_dims_list)
-
-        # Raise invalid dims error
-        if len(selected_scene.shape) != len(selected_scene_dims):
-            raise exceptions.ConflictingArgumentsError(
-                f"Dimension string provided does not match the "
-                f"number of dimensions found for this scene. "
-                f"This scene shape: {selected_scene.shape}, "
-                f"Provided dims string: {selected_scene_dims}"
+        if spatial_chunks:
+            native_chunk_shape = tuple(
+                spatial_chunks.get(dim, size if dim in chunk_dims else 1)
+                for dim, size in zip(series.axes, series.shape)
+            )
+            return da.map_blocks(
+                Reader._get_native_chunk,
+                chunks=da.core.normalize_chunks(native_chunk_shape, shape=series.shape),
+                dtype=series.dtype,
+                meta=np.empty((0,) * len(series.shape), dtype=series.dtype),
+                fs=self._fs,
+                path=self._path,
+                scene=self.current_scene_index,
+                level=self.current_resolution_level,
+                chunk_shape=native_chunk_shape,
             )
 
+        selected_scene_dims = series.axes
         # Constuct the chunk and non-chunk shapes one dim at a time
         # We also collect the chunk and non-chunk dimension order so that
         # we can swap the dimensions after we block out the array
@@ -575,8 +646,8 @@ class Reader(reader.Reader):
         non_chunk_shape = []
         chunk_dim_order = []
         chunk_shape = []
-        for dim, size in zip(selected_scene_dims, selected_scene.shape):
-            if dim in self.chunk_dims:
+        for dim, size in zip(selected_scene_dims, series.shape):
+            if dim in chunk_dims:
                 chunk_dim_order.append(dim)
                 chunk_shape.append(size)
             else:
@@ -612,11 +683,12 @@ class Reader(reader.Reader):
                     fs=self._fs,
                     path=self._path,
                     scene=self.current_scene_index,
+                    level=self.current_resolution_level,
                     retrieve_indices=indices_with_slices,
                     transpose_indices=transposer,
                 ),
                 shape=chunk_shape,
-                dtype=selected_scene.dtype,
+                dtype=series.dtype,
             )
 
         # Convert the numpy array of lazy readers into a dask array
